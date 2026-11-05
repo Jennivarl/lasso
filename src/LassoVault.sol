@@ -4,17 +4,17 @@ pragma solidity ^0.8.27;
 import {IRoadOut} from "./interfaces/IRoads.sol";
 import {Commitments} from "./libraries/Commitments.sol";
 
-/// @title LongArm Vault
+/// @title Lasso Vault
 /// @notice Lives on the collateral chain (Ethereum). Holds a borrower's ETH while their loan
-///         runs on Portaldot, and pays it out only as a Courthouse ruling says.
+///         runs on Portaldot, and pays it out only as a Lasso ruling says.
 /// @dev The vault never decides anything itself. It checks the ruling through Road Out,
 ///      checks that the ruling pays out exactly the locked amount, and pays once.
-contract LongArmVault {
+contract LassoVault {
     struct Deposit {
         address depositor;
         uint256 amount;
-        uint256 courthouseChainId;
-        address courthouse;
+        uint256 lassoChainId;
+        address lasso;
         uint256 loanId;
         bool settled;
     }
@@ -35,8 +35,8 @@ contract LongArmVault {
         uint256 indexed depositId,
         address indexed depositor,
         uint256 amount,
-        uint256 courthouseChainId,
-        address courthouse,
+        uint256 lassoChainId,
+        address lasso,
         uint256 indexed loanId,
         bytes32 commitment
     );
@@ -73,23 +73,19 @@ contract LongArmVault {
         emit RoadOutChanged(address(road));
     }
 
-    /// @notice Lock ETH as collateral for loan `loanId` in the Courthouse at (`courthouseChainId`, `courthouse`).
-    function lock(uint256 courthouseChainId, address courthouse, uint256 loanId)
-        external
-        payable
-        returns (uint256 depositId)
-    {
+    /// @notice Lock ETH as collateral for loan `loanId` in Lasso at (`lassoChainId`, `lasso`).
+    function lock(uint256 lassoChainId, address lasso, uint256 loanId) external payable returns (uint256 depositId) {
         if (msg.value == 0) revert ZeroAmount();
         depositId = nextDepositId++;
-        deposits[depositId] = Deposit(msg.sender, msg.value, courthouseChainId, courthouse, loanId, false);
+        deposits[depositId] = Deposit(msg.sender, msg.value, lassoChainId, lasso, loanId, false);
         bytes32 c = Commitments.deposit(
-            block.chainid, address(this), depositId, msg.sender, msg.value, courthouseChainId, courthouse, loanId
+            block.chainid, address(this), depositId, msg.sender, msg.value, lassoChainId, lasso, loanId
         );
         commitments[depositId] = c;
-        emit Locked(depositId, msg.sender, msg.value, courthouseChainId, courthouse, loanId, c);
+        emit Locked(depositId, msg.sender, msg.value, lassoChainId, lasso, loanId, c);
     }
 
-    /// @notice Carry out a Courthouse ruling. Anyone can call it; the proof is what matters.
+    /// @notice Carry out a Lasso ruling. Anyone can call it; the proof is what matters.
     function execute(uint256 depositId, Commitments.Payout[] calldata payouts, bytes calldata proof)
         external
         nonReentrant
@@ -104,10 +100,9 @@ contract LongArmVault {
         }
         if (total != d.amount) revert PayoutMismatch(d.amount, total);
 
-        bytes32 rc = Commitments.ruling(
-            d.courthouseChainId, d.courthouse, d.loanId, block.chainid, address(this), depositId, payouts
-        );
-        if (!roadOut.verifyRuling(d.courthouseChainId, d.courthouse, d.loanId, rc, proof)) revert RulingNotProven();
+        bytes32 rc =
+            Commitments.ruling(d.lassoChainId, d.lasso, d.loanId, block.chainid, address(this), depositId, payouts);
+        if (!roadOut.verifyRuling(d.lassoChainId, d.lasso, d.loanId, rc, proof)) revert RulingNotProven();
 
         d.settled = true;
         emit Settled(depositId, d.loanId, rc);

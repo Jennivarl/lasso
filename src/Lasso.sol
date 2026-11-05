@@ -5,7 +5,7 @@ import {IERC20} from "./interfaces/IERC20.sol";
 import {IRoadIn} from "./interfaces/IRoads.sol";
 import {Commitments} from "./libraries/Commitments.sol";
 
-/// @title Courthouse
+/// @title Lasso
 /// @notice Lives on Portaldot. Runs loans backed by collateral locked on another chain, and when a
 ///         borrower stops paying, runs a fair default process: claim, response, panel vote, ruling.
 ///         Every ruling is a list of who gets the collateral, paid senior lenders first.
@@ -14,7 +14,7 @@ import {Commitments} from "./libraries/Commitments.sol";
 ///      Active -> claim filed -> InClaim -> (no response) -> Defaulted
 ///      InClaim -> (borrower responds) -> Disputed -> panel vote -> Defaulted | Repaid (paid off-chain)
 ///      Open -> Cancelled
-contract Courthouse {
+contract Lasso {
     enum Status {
         None,
         Open,

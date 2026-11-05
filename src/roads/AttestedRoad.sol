@@ -6,11 +6,11 @@ import {IRoadIn, IRoadOut} from "../interfaces/IRoads.sol";
 /// @title AttestedRoad (TEMPORARY, TRUSTED)
 /// @notice Stand-in for the ZK roads while they are being built. One attester key signs
 ///         "this commitment exists on the other chain". Whoever holds that key is trusted.
-///         It exists so the Courthouse and the vault can be built and tested end to end now;
+///         It exists so Lasso and the vault can be built and tested end to end now;
 ///         ZkRoadIn and ZkRoadOut replace it, and nothing else changes.
 contract AttestedRoad is IRoadIn, IRoadOut {
-    bytes32 public constant ROAD_IN_TAG = keccak256("COURTHOUSE_ATTESTED_ROAD_IN_V1");
-    bytes32 public constant ROAD_OUT_TAG = keccak256("COURTHOUSE_ATTESTED_ROAD_OUT_V1");
+    bytes32 public constant ROAD_IN_TAG = keccak256("LASSO_ATTESTED_ROAD_IN_V1");
+    bytes32 public constant ROAD_OUT_TAG = keccak256("LASSO_ATTESTED_ROAD_OUT_V1");
 
     /// @dev secp256k1 order / 2, to reject malleable signatures.
     uint256 private constant HALF_N = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
@@ -31,14 +31,12 @@ contract AttestedRoad is IRoadIn, IRoadOut {
         return _signedByAttester(depositDigest(vaultChainId, vault, depositId, commitment), proof);
     }
 
-    function verifyRuling(
-        uint256 courthouseChainId,
-        address courthouse,
-        uint256 loanId,
-        bytes32 commitment,
-        bytes calldata proof
-    ) external view returns (bool) {
-        return _signedByAttester(rulingDigest(courthouseChainId, courthouse, loanId, commitment), proof);
+    function verifyRuling(uint256 lassoChainId, address lasso, uint256 loanId, bytes32 commitment, bytes calldata proof)
+        external
+        view
+        returns (bool)
+    {
+        return _signedByAttester(rulingDigest(lassoChainId, lasso, loanId, commitment), proof);
     }
 
     /// @notice What the attester signs for Road In. Bound to this road and this chain, so it cannot be replayed.
@@ -53,14 +51,13 @@ contract AttestedRoad is IRoadIn, IRoadOut {
     }
 
     /// @notice What the attester signs for Road Out.
-    function rulingDigest(uint256 courthouseChainId, address courthouse, uint256 loanId, bytes32 commitment)
+    function rulingDigest(uint256 lassoChainId, address lasso, uint256 loanId, bytes32 commitment)
         public
         view
         returns (bytes32)
     {
-        return keccak256(
-            abi.encode(ROAD_OUT_TAG, block.chainid, address(this), courthouseChainId, courthouse, loanId, commitment)
-        );
+        return
+            keccak256(abi.encode(ROAD_OUT_TAG, block.chainid, address(this), lassoChainId, lasso, loanId, commitment));
     }
 
     /// @dev proof = 65-byte signature (r, s, v) over the EIP-191 hash of `digest`.

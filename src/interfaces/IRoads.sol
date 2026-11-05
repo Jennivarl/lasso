@@ -16,13 +16,10 @@ interface IRoadIn {
 
 /// @notice Road Out: lets the collateral chain check a ruling made on Portaldot.
 /// @dev The proof must show that `commitment` is stored at `rulingOf[loanId]`
-///      in `courthouse` on chain `courthouseChainId`, at a finalized block.
+///      in `lasso` on chain `lassoChainId`, at a finalized block.
 interface IRoadOut {
-    function verifyRuling(
-        uint256 courthouseChainId,
-        address courthouse,
-        uint256 loanId,
-        bytes32 commitment,
-        bytes calldata proof
-    ) external view returns (bool);
+    function verifyRuling(uint256 lassoChainId, address lasso, uint256 loanId, bytes32 commitment, bytes calldata proof)
+        external
+        view
+        returns (bool);
 }

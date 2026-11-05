@@ -3,7 +3,7 @@ pragma solidity ^0.8.27;
 
 /// @notice Test dollar for the demo. Anyone can mint. Testnet only.
 contract MockUSD {
-    string public constant name = "Courthouse Test Dollar";
+    string public constant name = "Lasso Test Dollar";
     string public constant symbol = "mUSD";
     uint8 public constant decimals = 18;
 

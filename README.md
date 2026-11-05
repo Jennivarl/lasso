@@ -1,8 +1,8 @@
-# Courthouse
+# Lasso
 
-**An on-chain bankruptcy court on Portaldot, with a long arm that reaches collateral on other chains.**
+**Borrow on Portaldot against ETH that never leaves Ethereum. If you don't pay, Portaldot throws a lasso across chains and pulls the collateral home to your lenders.**
 
-Portaldot's own roadmap names DaaS (Default-as-a-Service), an on-chain court for defaults, as its flagship protocol. Courthouse is a working version of that idea:
+Portaldot's own roadmap names DaaS (Default-as-a-Service), on-chain default handling, as its flagship protocol. Lasso is a working version of that idea, and it reaches across chains:
 
 - A business borrows on **Portaldot** against ETH that stays locked on **Ethereum**.
 - If it repays, the ETH goes back to it.
@@ -14,16 +14,16 @@ Portaldot's own roadmap names DaaS (Default-as-a-Service), an on-chain court for
 ```
      ETHEREUM                                   PORTALDOT
    ┌──────────────────┐   Road In  →         ┌──────────────────┐
-   │  LongArmVault    │  "the ETH is locked"  │   Courthouse     │
+   │   LassoVault     │  "the ETH is locked"  │      Lasso       │
    │  holds the ETH   │                       │  loans, claims,  │
    │                  │  ← Road Out           │  votes, rulings  │
-   └──────────────────┘  "the court ruled"    └──────────────────┘
+   └──────────────────┘  "the panel ruled"    └──────────────────┘
 ```
 
 | Contract | Chain | Job |
 |---|---|---|
-| [`Courthouse.sol`](src/Courthouse.sol) | Portaldot | Loans in two tranches (senior / junior), repayment, claims, answers, arbiter votes, rulings |
-| [`LongArmVault.sol`](src/LongArmVault.sol) | Ethereum | Locks ETH for a loan, pays it out exactly as a proven ruling says, once |
+| [`Lasso.sol`](src/Lasso.sol) | Portaldot | Loans in two tranches (senior / junior), repayment, claims, answers, arbiter votes, rulings |
+| [`LassoVault.sol`](src/LassoVault.sol) | Ethereum | Locks ETH for a loan, pays it out exactly as a proven ruling says, once |
 | [`Commitments.sol`](src/libraries/Commitments.sol) | both | The two messages that cross chains, hashed identically on both sides |
 | [`IRoads.sol`](src/interfaces/IRoads.sol) | both | The two roads: Road In (Ethereum → Portaldot) and Road Out (Portaldot → Ethereum) |
 | [`AttestedRoad.sol`](src/roads/AttestedRoad.sol) | both | **Temporary** road (see below) |
@@ -32,26 +32,26 @@ Portaldot's own roadmap names DaaS (Default-as-a-Service), an on-chain court for
 
 1. **Request:** the borrower posts terms: how much from senior and junior lenders, interest per tranche, due date, collateral amount, and the settlement price used if it defaults.
 2. **Lock:** the borrower locks ETH in the vault on Ethereum.
-3. **Prove:** anyone proves the lock to the Courthouse through Road In. Lenders can't fund until this is done.
+3. **Prove:** anyone proves the lock to Lasso through Road In. Lenders can't fund until this is done.
 4. **Fund and draw down:** lenders fill both tranches, and the borrower takes the money.
-5. **Repay:** the loan is repaid in full, the Courthouse rules "release", and the vault returns the ETH.
+5. **Repay:** the loan is repaid in full, Lasso rules "release", and the vault returns the ETH.
 6. **Or default:**
    - after the due date plus a grace period, a lender files a claim and posts a bond;
    - the borrower can answer with evidence (for example "I paid by bank transfer") and posts the same bond;
    - no answer means the default stands; with an answer, arbiters vote and a quorum decides;
    - if voting time runs out without a quorum, the default stands (the borrower missed the due date, so the burden of proof is on them);
    - whoever was wrong loses their bond to the other side.
-7. **Ruling:** the Courthouse stores one hash of "who gets how much ETH". Road Out carries it to Ethereum, and the vault checks it, checks it adds up to exactly the locked ETH, and pays.
+7. **Ruling:** Lasso stores one hash of "who gets how much ETH". Road Out carries it to Ethereum, and the vault checks it, checks it adds up to exactly the locked ETH, and pays.
 
 ## Status: step 1 of 3
 
 | Step | What | State |
 |---|---|---|
-| 1 | Courthouse, vault, full default process, tests | ✅ done |
+| 1 | Lasso, vault, full default process, tests | ✅ done |
 | 2 | **Road Out as a ZK proof**: Ethereum checks Portaldot's validator signatures inside one SNARK | building |
 | 3 | **Road In as a ZK proof**: Portaldot checks Ethereum's consensus inside one SNARK | next |
 
-**Be aware:** until steps 2 and 3 land, both roads use [`AttestedRoad`](src/roads/AttestedRoad.sol), where **one signing key is trusted** to say "this happened on the other chain". It exists so everything else can be built and tested end to end now. The ZK roads replace it through the same interface, and the Courthouse and the vault don't change.
+**Be aware:** until steps 2 and 3 land, both roads use [`AttestedRoad`](src/roads/AttestedRoad.sol), where **one signing key is trusted** to say "this happened on the other chain". It exists so everything else can be built and tested end to end now. The ZK roads replace it through the same interface, and Lasso and the vault don't change.
 
 ## How to Test
 
@@ -78,7 +78,7 @@ You only need a computer with internet. Nothing touches a real blockchain: the t
 
 ```bash
 git clone --recurse-submodules <this repository's URL>
-cd courthouse
+cd lasso
 ```
 
 `--recurse-submodules` also downloads the testing library the tests use. If you forgot it, run `git submodule update --init`.
@@ -119,19 +119,19 @@ Every test uses the same example loan: **10,000 mUSD borrowed against 10 ETH**. 
 | `test_Vault_RejectsWrongTotal` | Payout list doesn't add up to the locked ETH | Vault refuses |
 | `test_Vault_PaysOnlyOnce` | Same ruling sent twice | Second time refused |
 | `test_Vault_RejectsProofFromWrongSigner` | Proof signed by the wrong key | Vault refuses |
-| `test_Court_RejectsCollateralLockedForAnotherLoan` | ETH locked for a different loan | Courthouse refuses to count it |
-| `test_Court_NoFundingBeforeCollateral` | Lender tries to fund before the ETH is proven | Refused |
-| `test_Court_NoClaimBeforeDueDatePlusGrace` | Claim filed too early | Refused |
-| `test_Court_OnlyLendersCanClaim` | A stranger files a claim | Refused |
-| `test_Court_OnlyArbitersVote_AndNoConflicts` | A stranger votes; a lender who is also an arbiter votes; an arbiter votes twice | All refused |
-| `test_Court_LateAnswerRejected` | Borrower answers after the window closed | Refused |
+| `test_Lasso_RejectsCollateralLockedForAnotherLoan` | ETH locked for a different loan | Lasso refuses to count it |
+| `test_Lasso_NoFundingBeforeCollateral` | Lender tries to fund before the ETH is proven | Refused |
+| `test_Lasso_NoClaimBeforeDueDatePlusGrace` | Claim filed too early | Refused |
+| `test_Lasso_OnlyLendersCanClaim` | A stranger files a claim | Refused |
+| `test_Lasso_OnlyArbitersVote_AndNoConflicts` | A stranger votes; a lender who is also an arbiter votes; an arbiter votes twice | All refused |
+| `test_Lasso_LateAnswerRejected` | Borrower answers after the window closed | Refused |
 | `testFuzz_DefaultPayoutsAlwaysSumToCollateral` | 256 random loans, repayments and prices | Every ruling pays out **exactly** the locked ETH, and the vault accepts it |
 
 ## Tech notes
 
 - Solidity 0.8.27, plain EVM bytecode. Portaldot V3's EVM (pallet-revive) runs it as is.
 - Lenders use the same `0x…` address on both chains, so ETH payouts go straight to them.
-- `rulingOf` (Courthouse) and `commitments` (vault) are kept as plain mappings on purpose: the ZK roads prove those exact storage slots.
+- `rulingOf` (Lasso) and `commitments` (vault) are kept as plain mappings on purpose: the ZK roads prove those exact storage slots.
 - Arbiters and the road addresses are set by the deployer for now. That is temporary governance, and it's listed here so nobody mistakes it for the final design.
 
 ## Third-party code

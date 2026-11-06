@@ -142,7 +142,7 @@ footer{border-top:1px solid var(--line);padding:28px 24px;color:var(--faint);fon
 <body>
 <nav>
   <a class="logo" href="#/">
-    <svg viewBox="0 0 32 32" fill="none"><ellipse cx="13" cy="13" rx="9" ry="7" stroke="#f5a524" stroke-width="2.4"/><path d="M19 18c3 3 4 6 8 10" stroke="#f5a524" stroke-width="2.4" stroke-linecap="round"/></svg>
+    <svg viewBox="0 0 32 32" fill="none"><ellipse cx="18" cy="11" rx="11" ry="6.5" stroke="#f5a524" stroke-width="2.2"/><path d="M9.5 15.5c-2.5 2.5-3 5.5-1 8s5 2 6.5 4.5" stroke="#f5a524" stroke-width="2.2" stroke-linecap="round"/><circle cx="9.6" cy="15.4" r="2" fill="#f5a524"/></svg>
     Lasso
   </a>
   <div class="navlinks">
@@ -663,7 +663,7 @@ function frame(t) {
   cx.fillStyle = "#e3eaff"; cx.beginPath(); cx.arc(n.b.x, n.b.y, n.b.r * .32, 0, Math.PI * 2); cx.fill();
   const la = $("#lblPd"), lb = $("#lblEth");
   la.style.left = n.a.x + "px"; la.style.top = (n.a.y + n.a.r + 18) + "px";
-  lb.style.left = n.b.x + "px"; lb.style.top = (n.b.y + Math.min(Wd, Ht) * .16 * .62 + 26) + "px";
+  lb.style.left = n.b.x + "px"; lb.style.top = (n.b.y - Math.min(Wd, Ht) * .16 * .62 - 44) + "px";
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

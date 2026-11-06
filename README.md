@@ -1,78 +1,99 @@
 # Lasso
 
-**Borrow on Portaldot against ETH that never leaves Ethereum. If you don't pay, Portaldot throws a lasso across chains and pulls the collateral home to your lenders.**
+**Borrow on Portaldot against ETH that never leaves Ethereum. If you don't pay, Portaldot throws a lasso across chains and pulls the collateral home to your lenders, senior lender first.**
 
-Portaldot's own roadmap names DaaS (Default-as-a-Service), on-chain default handling, as its flagship protocol. Lasso is a working version of that idea, and it reaches across chains:
+Portaldot's own site names **DaaS (Default-as-a-Service)**, on-chain default handling, as its flagship protocol: early warning, dispute resolution, asset seizure, liquidation, loss allocation, cross-chain settlement. Lasso is a working version of that idea, and it reaches across chains.
 
-- A business borrows on **Portaldot** against ETH that stays locked on **Ethereum**.
-- If it repays, the ETH goes back to it.
-- If it stops paying, lenders file a claim, the borrower can answer, a panel of arbiters decides, and the ruling pays lenders out of the ETH: **senior lenders first, then junior lenders, then any surplus back to the borrower.**
-- The Ethereum vault only moves money when it can check the Portaldot ruling for itself.
+## The problem
 
-## How it fits together
+Lending apps today handle one kind of failure: the collateral's price drops, so they sell it. They can't handle a **real-world default**, a business that simply stops paying, and they can't touch collateral sitting on **another chain**. Nobody decides who is right, and nobody decides who gets paid first.
+
+## What Lasso does
+
+1. **A business asks for a loan on Portaldot**, in two parts: a **senior** lender (paid first, lower interest) and a **junior** lender (paid second, higher interest).
+2. **It locks ETH on Ethereum** in `LassoVault`. The ETH never moves to Portaldot.
+3. **Road In** tells Portaldot the ETH is really locked. Lenders can't fund until it does.
+4. **Both lenders fund**, and the loan starts. Repayments go straight to the lenders as they arrive, senior first.
+5. **If the borrower stops paying**, after the due date plus a grace period a lender files a **claim** and posts a bond.
+6. **The borrower can answer** with evidence (say, "I paid by bank transfer") and posts the same bond. Then **2 of 3 arbiters** decide. No answer, or no 2 matching votes in time, and the default stands, because the borrower missed the due date and the burden of proof is on them. Whoever was wrong loses their bond.
+7. **Lasso rules**: who gets how much ETH, in order (senior, then junior, then any surplus back to the borrower). It stores one fingerprint of that ruling.
+8. **Road Out** carries the ruling to Ethereum. The vault checks it against its own deposit, checks it adds up to exactly the locked ETH, and pays, **once**.
 
 ```
      ETHEREUM                                   PORTALDOT
-   ┌──────────────────┐   Road In  →         ┌──────────────────┐
+   ┌──────────────────┐   Road In  →          ┌──────────────────┐
    │   LassoVault     │  "the ETH is locked"  │      Lasso       │
    │  holds the ETH   │                       │  loans, claims,  │
    │                  │  ← Road Out           │  votes, rulings  │
    └──────────────────┘  "the panel ruled"    └──────────────────┘
 ```
 
-| Contract | Chain | Job |
-|---|---|---|
-| [`Lasso.sol`](src/Lasso.sol) | Portaldot | Loans in two tranches (senior / junior), repayment, claims, answers, arbiter votes, rulings |
-| [`LassoVault.sol`](src/LassoVault.sol) | Ethereum | Locks ETH for a loan, pays it out exactly as a proven ruling says, once |
-| [`Commitments.sol`](src/libraries/Commitments.sol) | both | The two messages that cross chains, hashed identically on both sides |
-| [`IRoads.sol`](src/interfaces/IRoads.sol) | both | The two roads: Road In (Ethereum → Portaldot) and Road Out (Portaldot → Ethereum) |
-| [`AttestedRoad.sol`](src/roads/AttestedRoad.sol) | both | **Temporary** road (see below) |
+## Live deployments
 
-### The life of a loan
+| Contract | Chain | Address | Deploy transaction |
+|---|---|---|---|
+| **Lasso** | Portaldot V3 testnet (420420777) | `0x30e537B1FA7f59bE17440e9a49782d5Ff83D9dD1` | `0xab6f9a1de328dc451e170ea9d32a649a2b5e87b46ef7eaf9e4f61321130e021b` (block 341,767) |
+| **LassoVault** | Ethereum Sepolia (11155111) | `0x7C813053C1bfbEFF48Af6f8568E24972768306E2` | `0x4c6e548bc17d04ca2d0be30a98d3941c8c5b0321fff8871b808ff33577e8b293` |
+| **AttestedRoad** (Road Out, temporary) | Ethereum Sepolia | `0x3E8B7b6BcDEda05B89B93c66A7325e932A751fa8` | `0x5e92a7842c95092622e2094e1d0edfea849e2e371afec3854636ff467b25c352` |
 
-1. **Request:** the borrower posts terms: how much from senior and junior lenders, interest per tranche, due date, collateral amount, and the settlement price used if it defaults.
-2. **Lock:** the borrower locks ETH in the vault on Ethereum.
-3. **Prove:** anyone proves the lock to Lasso through Road In. Lenders can't fund until this is done.
-4. **Fund and draw down:** lenders fill both tranches, and the borrower takes the money.
-5. **Repay:** the loan is repaid in full, Lasso rules "release", and the vault returns the ETH.
-6. **Or default:**
-   - after the due date plus a grace period, a lender files a claim and posts a bond;
-   - the borrower can answer with evidence (for example "I paid by bank transfer") and posts the same bond;
-   - no answer means the default stands; with an answer, arbiters vote and a quorum decides;
-   - if voting time runs out without a quorum, the default stands (the borrower missed the due date, so the burden of proof is on them);
-   - whoever was wrong loses their bond to the other side.
-7. **Ruling:** Lasso stores one hash of "who gets how much ETH". Road Out carries it to Ethereum, and the vault checks it, checks it adds up to exactly the locked ETH, and pays.
+## Built for Portaldot's storage deposits
 
-## Status: step 1 of 3
+Portaldot V3 (pallet-revive) holds a deposit for everything a contract stores. We read the numbers from the chain itself:
 
-| Step | What | State |
-|---|---|---|
-| 1 | Lasso, vault, full default process, tests | ✅ done |
-| 2 | **Road Out as a ZK proof**: Ethereum checks Portaldot's validator signatures inside one SNARK | building |
-| 3 | **Road In as a ZK proof**: Portaldot checks Ethereum's consensus inside one SNARK | next |
+| Constant | Value |
+|---|---|
+| `Revive.DepositPerByte` | 0.06 POT |
+| `Revive.DepositPerItem` | 0.15 POT |
+| `CodeHashLockupDepositPercent` | 30% |
 
-**Be aware:** until steps 2 and 3 land, both roads use [`AttestedRoad`](src/roads/AttestedRoad.sol), where **one signing key is trusted** to say "this happened on the other chain". It exists so everything else can be built and tested end to end now. The ZK roads replace it through the same interface, and Lasso and the vault don't change.
+So deploying costs about **0.078 POT per byte of code**, and every new storage slot costs about **4 POT**. Our first version (14.8 KB, plus a test token and a separate road contract) needed **~1,425 POT** just to deploy. We had ~500.
+
+So Lasso was rebuilt for Portaldot:
+
+- **One 5.9 KB contract** on Portaldot, deployed for ~478 POT.
+- **Native POT** instead of a token contract. The Road In check is built in, so there's no second contract.
+- **A whole loan packed into 8 storage slots**, written in as few writes as possible.
+- **Lenders are paid as money arrives** (senior first), so there's no withdraw bookkeeping.
+- **The loan starts automatically** once fully funded.
+- **Rulings are a fixed three-line payout** (senior, junior, borrower), so encoding is cheap on both chains.
+- **State is read from events**, not view functions.
+
+**Honest limit:** after deploying, ~21 POT was left. That isn't enough for the ~40 POT of storage deposits a full live loan writes. So the full story below runs against a **local copy (fork) of the live Portaldot V3 testnet with the real deployed Lasso contract in it**, plus a fork of Sepolia with the real vault. It's the same bytecode at the same addresses, but a copy charges no deposits.
+
+## Status
+
+| Piece | State |
+|---|---|
+| Lasso: loans, collateral proof, two-tranche repayment, claims, bonds, answers, arbiter votes, rulings | ✅ deployed on Portaldot V3 testnet |
+| LassoVault: lock ETH, carry out a ruling exactly once | ✅ deployed on Sepolia |
+| Full cross-chain story, scripted | ✅ runs on forks of both live chains |
+| **Road In and Road Out as ZK proofs** | 🔜 next |
+
+**Be aware:** today both roads are **attested**. One signing key vouches "this happened on the other chain", and whoever holds it is trusted. The vault and Lasso check only that signature, so swapping in a ZK proof changes the check and nothing else. The plan:
+- **Road Out (Portaldot → Ethereum):** a SNARK that checks Portaldot's GRANDPA validator signatures (2 validators on V3 testnet, ed25519) and a storage proof of `rulingOf[loanId]`. Ethereum verifies one small proof, whatever the validator count. Portaldot's RPC already serves everything this needs (`grandpa_proveFinality`, `state_getReadProof`, `state_getChildReadProof`).
+- **Road In (Ethereum → Portaldot):** a SNARK of Ethereum consensus (SP1 Helios) plus a storage proof of `commitments[depositId]`. We checked that Portaldot V3's EVM supports the BN254 pairing precompiles needed to verify it.
 
 ## How to Test
 
-You only need a computer with internet. Nothing touches a real blockchain: the tests run both "chains" on a private simulated one, in under a second.
+There are two things to try: the **tests** (about a minute) and the **full story demo** (about two minutes). Both run on a computer you control and touch no real money.
 
-### 1. Install the two tools (one time)
+### 1. Install the tools (one time)
 
-- **Git**: download from <https://git-scm.com/downloads> and install with the default options.
-- **Foundry** (the Solidity toolkit):
-  - **macOS / Linux:** open a terminal and run:
-    ```bash
-    curl -L https://foundry.paradigm.xyz | bash
-    foundryup
-    ```
-  - **Windows:** install Git first, open **Git Bash**, and run the same two commands.
+You need **Git**, **Foundry** (the Solidity toolkit), and **Python 3**.
 
-  Check it worked:
+- **Git:** <https://git-scm.com/downloads>, install with the defaults.
+- **Foundry:** on macOS or Linux, open a terminal and run the two lines below. On Windows, run them inside **WSL** (Ubuntu).
   ```bash
-  forge --version
+  curl -L https://foundry.paradigm.xyz | bash
+  foundryup
   ```
-  You should see something like `forge Version: 1.x`.
+- **Python 3:** already on macOS and Linux. Check with `python3 --version`.
+
+Check Foundry worked:
+```bash
+forge --version
+```
+You should see `forge Version: 1.x`.
 
 ### 2. Get the code
 
@@ -81,62 +102,97 @@ git clone --recurse-submodules <this repository's URL>
 cd lasso
 ```
 
-`--recurse-submodules` also downloads the testing library the tests use. If you forgot it, run `git submodule update --init`.
-
 ### 3. Run the tests
 
 ```bash
 forge test
 ```
 
-The first run downloads the Solidity compiler (about 10 seconds). Then you should see:
-
+The first run downloads the compiler (about 10 seconds). Then you should see:
 ```
-Suite result: ok. 19 passed; 0 failed; 0 skipped
-```
-
-To see each step of a test as it runs, add `-vvvv`, for example:
-
-```bash
-forge test --match-test test_DefaultUnanswered -vvvv
+Suite result: ok. 21 passed; 0 failed; 0 skipped
 ```
 
-### 4. What the tests prove
-
-Every test uses the same example loan: **10,000 mUSD borrowed against 10 ETH**. 6,000 comes from senior lenders at 5% and 4,000 from junior lenders at 15%, so **10,900 is owed**, and at settlement **1 ETH = 2,000 mUSD**.
+The tests run both "chains" on one simulated chain. They all use one example loan: **6,000 POT senior at 5% + 4,000 POT junior at 15% = 10,900 owed, backed by 10 ETH, settled at 1 ETH = 2,000 POT.**
 
 | Test | The story | What should happen |
 |---|---|---|
-| `test_RepaidInFull_CollateralGoesBack` | Borrower repays 10,900 | All 10 ETH goes back to the borrower; each lender gets principal plus interest |
-| `test_DefaultUnanswered_SeniorFirstThenJuniorThenBorrower` | Borrower repays only 3,000, a lender files a claim, no answer | The 3,000 goes to senior lenders. Seniors get 1.65 ETH (split 1.1 / 0.55), juniors get 2.30 ETH, the borrower keeps 6.05 ETH |
-| `test_CollateralTooSmall_SeniorProtectedJuniorTakesLoss` | ETH is only worth 500 at settlement | Seniors take all 10 ETH; juniors absorb the loss |
-| `test_Dispute_PanelSaysPaidOffChain` | Borrower answers "I paid by bank", 2 of 3 arbiters agree | Loan marked repaid, ETH released, borrower wins both bonds |
-| `test_Dispute_PanelConfirmsDefault` | Borrower's answer is rejected by 2 arbiters | Default; the claimant wins both bonds |
-| `test_Dispute_NoQuorum_BurdenOnBorrower` | Votes split 1–1 and time runs out | Default stands |
-| `test_RepayDuringClaim_EndsItAndReturnsBonds` | Borrower pays in full after a claim was filed | Claim closed, bonds returned |
-| `test_Cancel_RefundsLendersAndReleasesCollateral` | Loan never gets fully funded | Lenders refunded, ETH released |
-| `test_Vault_RejectsTamperedPayouts` | Someone edits the payout list to send ETH to themselves | Vault refuses: the list no longer matches the ruling |
-| `test_Vault_RejectsWrongTotal` | Payout list doesn't add up to the locked ETH | Vault refuses |
-| `test_Vault_PaysOnlyOnce` | Same ruling sent twice | Second time refused |
-| `test_Vault_RejectsProofFromWrongSigner` | Proof signed by the wrong key | Vault refuses |
-| `test_Lasso_RejectsCollateralLockedForAnotherLoan` | ETH locked for a different loan | Lasso refuses to count it |
-| `test_Lasso_NoFundingBeforeCollateral` | Lender tries to fund before the ETH is proven | Refused |
-| `test_Lasso_NoClaimBeforeDueDatePlusGrace` | Claim filed too early | Refused |
-| `test_Lasso_OnlyLendersCanClaim` | A stranger files a claim | Refused |
-| `test_Lasso_OnlyArbitersVote_AndNoConflicts` | A stranger votes; a lender who is also an arbiter votes; an arbiter votes twice | All refused |
-| `test_Lasso_LateAnswerRejected` | Borrower answers after the window closed | Refused |
-| `testFuzz_DefaultPayoutsAlwaysSumToCollateral` | 256 random loans, repayments and prices | Every ruling pays out **exactly** the locked ETH, and the vault accepts it |
+| `test_FundingStartsLoan_PrincipalToBorrower` | Both lenders fund | The loan starts and the borrower gets 10,000 POT |
+| `test_RepaidInFull_LendersPaidAsMoneyArrives_CollateralBack` | Borrower repays 10,900 | Senior gets 6,300, junior 4,600, and all 10 ETH goes back |
+| `test_PartialRepayment_GoesToSeniorFirst` | Borrower repays 6,000, then 1,000 | The first 6,300 goes to senior, only then junior |
+| `test_DefaultUnanswered_SeniorThenJuniorThenBorrower` | Repays 3,000, claim, no answer | Senior 1.65 ETH, junior 2.30 ETH, borrower 6.05 ETH back |
+| `test_CollateralTooSmall_SeniorTakesAll` | ETH worth only 500 POT | Senior takes all 10 ETH; junior takes the loss |
+| `test_Dispute_PanelSaysPaidOffChain` | Borrower answers, 2 arbiters agree they paid | Loan repaid, ETH released, borrower wins both bonds |
+| `test_Dispute_PanelConfirmsDefault` | 2 arbiters reject the answer | Default; claimant wins both bonds |
+| `test_Dispute_NoQuorum_DefaultStands` | Votes split, time runs out | Default stands |
+| `test_RepayDuringClaim_ClosesItAndReturnsBond` | Borrower pays in full after a claim | Claim closed, bond returned |
+| `test_Cancel_RefundsAndReleases` | Loan never fully funded | Lender refunded, ETH released |
+| `test_Vault_RejectsTamperedPayouts` | Someone redirects the borrower's ETH to themselves | Vault refuses |
+| `test_Vault_RejectsWrongTotal_AndPaysOnce` | Payout doesn't add up; the same ruling sent twice | Both refused |
+| `test_Lasso_RejectsProofFromWrongKey` | Collateral "proof" signed by the wrong key | Refused |
+| `test_Lasso_RejectsCollateralLockedForAnotherLoan` | ETH locked for a different loan | Refused |
+| `test_Lasso_RejectsWrongCollateralAmount` | 9 ETH locked instead of 10 | Refused |
+| `test_Lasso_NoFundingBeforeProof_NoWrongAmount_NoSelfFunding` | Funding too early, wrong amount, borrower funding itself | All refused |
+| `test_Lasso_ClaimRules` | Claim too early, by a stranger, without a bond | All refused |
+| `test_Lasso_VoteRules` | A stranger votes, an arbiter votes twice, voting too late | All refused |
+| `test_Lasso_LateAnswerRejected` | Borrower answers after the window | Refused |
+| `test_Lasso_CannotOverpay` | Borrower sends more than owed | Refused |
+| `testFuzz_DefaultPayoutsSumToCollateral` | 256 random loans, repayments and prices | Every ruling pays out **exactly** the locked ETH, and the vault accepts it |
 
-## Tech notes
+### 4. Run the full story demo
 
-- Solidity 0.8.27, plain EVM bytecode. Portaldot V3's EVM (pallet-revive) runs it as is.
-- Lenders use the same `0x…` address on both chains, so ETH payouts go straight to them.
-- `rulingOf` (Lasso) and `commitments` (vault) are kept as plain mappings on purpose: the ZK roads prove those exact storage slots.
-- Arbiters and the road addresses are set by the deployer for now. That is temporary governance, and it's listed here so nobody mistakes it for the final design.
+This replays the whole default story against copies of the **live** chains, using the **real deployed contracts**.
+
+**Start two local copies** (leave this terminal open):
+```bash
+anvil --fork-url https://test-evm-rpc-v3.portaldot.dev --port 8545 &
+anvil --fork-url https://ethereum-sepolia-rpc.publicnode.com --port 8546 &
+```
+
+**Run the demo** in a second terminal. It needs the key the contracts were deployed with, because that key is the temporary road's signer. If you aren't the deployer, deploy your own copy first (see below).
+```bash
+ATTESTER_KEY=0x<deployer key> ./demo/run-demo.sh
+```
+
+What you should see, step by step:
+1. A loan of 10 POT is requested on Portaldot (6 senior at 5%, 4 junior at 15%), backed by 1 ETH.
+2. 1 ETH is locked in the vault on Ethereum.
+3. Road In: Lasso accepts proof of the lock.
+4. Both lenders fund; the borrower receives 10 POT.
+5. The borrower repays 3 POT. It all goes to the senior lender.
+6. Time passes; the senior lender files a claim with a bond.
+7. No answer; the default stands. The ruling is **senior 0.165 ETH, junior 0.23 ETH, borrower 0.605 ETH**.
+8. Road Out: the vault pays exactly that on Ethereum. Sending the same ruling again is **refused**.
+
+### 5. Deploy your own copy (optional)
+
+Put `DEPLOYER_PRIVATE_KEY`, `ARBITER0_ADDRESS`, `ARBITER1_ADDRESS` and `ARBITER2_ADDRESS` in a `.env` file. Then:
+```bash
+set -a; . ./.env; set +a
+forge script script/Deploy.s.sol:DeploySepolia --rpc-url sepolia --broadcast
+```
+
+On Portaldot, send the deploy with the exact gas estimate (no padding), or the node rejects it. You'll need about **490 POT** for the storage deposit:
+```bash
+forge script script/Deploy.s.sol:DeployPortaldot --rpc-url portaldot --broadcast --legacy --gas-estimate-multiplier 100
+```
+
+## Repository
+
+| Path | What |
+|---|---|
+| [`src/Lasso.sol`](src/Lasso.sol) | Portaldot side |
+| [`src/LassoVault.sol`](src/LassoVault.sol) | Ethereum side |
+| [`src/libraries/Commitments.sol`](src/libraries/Commitments.sol) | The two cross-chain messages, hashed the same way on both chains |
+| [`src/roads/AttestedRoad.sol`](src/roads/AttestedRoad.sol), [`src/interfaces/IRoads.sol`](src/interfaces/IRoads.sol) | The temporary road, and the interface the ZK road will plug into |
+| [`test/Lasso.t.sol`](test/Lasso.t.sol) | 21 tests |
+| [`demo/run-demo.sh`](demo/run-demo.sh) | The full story, scripted |
+| [`script/Deploy.s.sol`](script/Deploy.s.sol) | Deploy scripts |
 
 ## Third-party code
 
-- [forge-std](https://github.com/foundry-rs/forge-std) (MIT / Apache-2.0): test library only, not deployed.
+- [forge-std](https://github.com/foundry-rs/forge-std) (MIT / Apache-2.0): tests and scripts only, not deployed.
+- [Foundry](https://github.com/foundry-rs/foundry) (`forge`, `cast`, `anvil`): build, test, deploy, local forks.
 
 ## License
 

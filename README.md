@@ -71,6 +71,8 @@ Shrinking Lasso to fit Portaldot's deposits within our testnet budget meant givi
 
 What stays the same: nobody can take the collateral without a valid ruling, a ruling can't be altered, nothing is paid twice, and the payout order is always senior, then junior, then the borrower. The 21 tests cover these.
 
+**After the hackathon:** the code stays frozen while judging runs. Once the hackathon concludes, every item above will be fixed and Lasso redeployed as soon as we have enough testnet POT to cover the storage deposits.
+
 ## A real loan, end to end, on live chains
 
 Loan #0: **0.05 POT senior at 5% + 0.03 POT junior at 15%**, backed by **0.001 ETH** locked on Sepolia, settled at 100 POT per ETH. The borrower never repaid. Every step below is a real transaction.

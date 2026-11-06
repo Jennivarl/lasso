@@ -3,273 +3,671 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lasso · cross-chain default handling on Portaldot</title>
-<meta name="description" content="Borrow on Portaldot against ETH that never leaves Ethereum. If you don't pay, the ruling pulls the collateral home to your lenders, senior first.">
+<title>Lasso · the long arm of on-chain credit</title>
+<meta name="description" content="Borrow on Portaldot against ETH that never leaves Ethereum. Defaults are ruled on Portaldot and enforced on Ethereum, senior lenders first.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg: #f1f0ec; --win: #f9f8f5; --band: #f0efea; --line: #e3e1db;
-    --ink: #2e2e2c; --muted: #8f8d86; --faint: #bdbbb4;
-    --green: #2f8f57; --red: #c44a4a; --teal: #23848e; --amber: #b8771a; --blue: #3c6ec8;
-    --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
-    --sans: "Inter", system-ui, -apple-system, Segoe UI, sans-serif;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
-  body { background: radial-gradient(ellipse at 50% 30%, #f6f5f2 0%, var(--bg) 60%, #e6e4de 100%) fixed; }
-  a { color: inherit; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+:root{
+  --bg:#06070b; --bg2:#0b0d13; --panel:#0f1219; --panel2:#141824; --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.12);
+  --ink:#eceef2; --muted:#8b909b; --faint:#555a66;
+  --amber:#f5a524; --violet:#8b7cf6; --green:#3dd68c; --red:#f26d6d; --teal:#2ec4c4; --blue:#5b8cff;
+  --sans:"Inter",system-ui,-apple-system,Segoe UI,sans-serif; --display:"Space Grotesk","Inter",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;cursor:pointer}
+::selection{background:rgba(245,165,36,.35)}
 
-  header { padding: 72px 0 40px; text-align: center; }
-  .eyebrow { font-family: var(--mono); font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-  h1 { font-size: clamp(64px, 12vw, 120px); font-weight: 700; letter-spacing: -0.04em; margin: 12px 0 8px; line-height: 1; }
-  .tag { font-size: clamp(18px, 2.6vw, 24px); color: var(--muted); max-width: 720px; margin: 0 auto; line-height: 1.45; }
-  .tag b { color: var(--ink); font-weight: 600; }
-  .cta { margin-top: 28px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-  .btn { font: 600 15px var(--sans); padding: 12px 20px; border-radius: 999px; text-decoration: none; border: 1px solid var(--line); background: var(--win); }
-  .btn.dark { background: var(--ink); color: #f6f5f1; border-color: var(--ink); }
+/* nav */
+nav{position:fixed;inset:0 0 auto 0;z-index:50;display:flex;align-items:center;gap:24px;padding:14px 24px;background:linear-gradient(to bottom,rgba(6,7,11,.85),rgba(6,7,11,0));backdrop-filter:blur(6px)}
+.logo{display:flex;align-items:center;gap:10px;font:700 20px var(--display);letter-spacing:-.02em}
+.logo svg{width:26px;height:26px}
+.navlinks{display:flex;gap:4px;margin-left:12px}
+.navlinks a{padding:8px 12px;border-radius:999px;color:var(--muted);font-size:14px}
+.navlinks a:hover,.navlinks a.on{color:var(--ink);background:rgba(255,255,255,.06)}
+.spacer{flex:1}
+.net{display:flex;align-items:center;gap:8px;font:12px var(--mono);color:var(--muted);padding:7px 12px;border:1px solid var(--line);border-radius:999px}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(61,214,140,.6);animation:pulse 2s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 7px rgba(61,214,140,0)}100%{box-shadow:0 0 0 0 rgba(61,214,140,0)}}
+.btn{border:1px solid var(--line2);background:rgba(255,255,255,.04);padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;transition:.2s}
+.btn:hover{background:rgba(255,255,255,.09)}
+.btn.primary{background:var(--ink);color:#0a0b0f;border-color:var(--ink)}
+.btn.primary:hover{background:#fff}
+.btn.amber{background:var(--amber);color:#1a1205;border-color:var(--amber)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
 
-  section { padding: 40px 0; }
-  h2 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -0.02em; margin: 0 0 8px; }
-  .sub { color: var(--muted); margin: 0 0 24px; line-height: 1.5; }
+/* hero */
+#hero{position:relative;height:100vh;min-height:680px;overflow:hidden}
+#fx{position:absolute;inset:0;width:100%;height:100%}
+.hero-copy{position:absolute;left:0;right:0;bottom:12vh;padding:0 24px;max-width:1280px;margin:0 auto}
+.kicker{font:12px var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--amber)}
+.hero-copy h1{font:700 clamp(52px,9vw,128px)/.92 var(--display);letter-spacing:-.045em;margin:16px 0 22px;max-width:980px}
+.hero-copy h1 em{font-style:normal;background:linear-gradient(90deg,var(--amber),#ffd58a 50%,var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero-copy p{font-size:clamp(17px,1.8vw,21px);line-height:1.5;color:var(--muted);max-width:620px;margin:0 0 30px}
+.hero-copy p b{color:var(--ink);font-weight:500}
+.hero-cta{display:flex;gap:12px;flex-wrap:wrap}
+.chip-node{position:absolute;font:12px var(--mono);color:var(--muted);letter-spacing:.1em;text-transform:uppercase;pointer-events:none;transform:translate(-50%,0)}
 
-  .parts { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: center; }
-  .card { background: var(--win); border: 1px solid var(--line); border-radius: 18px; padding: 28px; box-shadow: 0 14px 40px rgba(0,0,0,.05); }
-  .card .chain { font: 600 13px var(--mono); letter-spacing: .1em; }
-  .card h3 { font-size: 32px; margin: 10px 0 10px; letter-spacing: -0.02em; }
-  .card p { margin: 0; color: var(--muted); line-height: 1.55; }
-  .arrow { font: 600 13px var(--mono); color: var(--muted); text-align: center; line-height: 1.8; }
-  .arrow span { display: block; font-size: 28px; color: var(--ink); }
+/* app shell */
+#app{display:none;min-height:100vh;padding:84px 24px 64px;max-width:1280px;margin:0 auto}
+body.app #hero,body.app #landing{display:none}
+body.app #app{display:block}
+.page-h{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:12px 0 24px;flex-wrap:wrap}
+.page-h h2{font:600 clamp(30px,4vw,44px) var(--display);letter-spacing:-.03em;margin:0}
+.page-h .sub{color:var(--muted);margin-top:6px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:18px;padding:20px}
+.stat .k{font:11px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.stat .v{font:600 34px var(--display);letter-spacing:-.03em;margin-top:10px}
+.stat .n{color:var(--faint);font-size:13px;margin-top:4px}
+.section-t{font:11px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:32px 0 12px}
 
-  .term { background: var(--win); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 24px 60px rgba(0,0,0,.08); overflow: hidden; }
-  .bar { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 18px; border-bottom: 1px solid var(--line); }
-  .dot { width: 12px; height: 12px; border-radius: 50%; }
-  .bar .title { margin-left: 12px; font: 13px var(--mono); color: var(--muted); }
-  .rows { padding: 18px 0; font: 14px/1.5 var(--mono); }
-  .row { display: grid; grid-template-columns: 56px 1fr auto; gap: 12px; padding: 7px 22px; align-items: baseline; opacity: 0; transform: translateY(4px); transition: opacity .35s, transform .35s; }
-  .row.on { opacity: 1; transform: none; }
-  .row .lab { color: var(--faint); }
-  .row .what b { font-weight: 600; }
-  .row .what .muted { color: var(--muted); }
-  .row .st { color: var(--muted); white-space: nowrap; }
-  .row .st.ok { color: var(--green); }
-  .row .st.bad { color: var(--red); }
-  .row a.hash { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--faint); }
-  .row a.hash:hover { color: var(--ink); }
-  .prompt { background: var(--band); padding: 14px 22px; font: 14px var(--mono); color: var(--ink); border-top: 1px solid var(--line); }
-  .prompt .c { display: inline-block; width: 9px; height: 17px; background: var(--ink); vertical-align: -3px; animation: blink 1s steps(1) infinite; }
-  @keyframes blink { 50% { opacity: 0; } }
-  .status { padding: 10px 22px 14px; font: 12.5px var(--mono); color: var(--muted); display: flex; gap: 18px; flex-wrap: wrap; }
-  .status b { font-weight: 600; }
+table.loans{width:100%;border-collapse:separate;border-spacing:0;font-size:14px}
+table.loans th{font:11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);text-align:left;font-weight:400;padding:12px 16px;border-bottom:1px solid var(--line)}
+table.loans td{padding:16px;border-bottom:1px solid var(--line)}
+table.loans tr.r{cursor:pointer;transition:background .15s}
+table.loans tr.r:hover{background:rgba(255,255,255,.03)}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:6px;font:500 11.5px var(--mono);letter-spacing:.06em;padding:5px 10px;border-radius:999px;border:1px solid}
+.pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.s-OPEN{color:var(--amber);border-color:rgba(245,165,36,.3);background:rgba(245,165,36,.07)}
+.s-ACTIVE{color:var(--green);border-color:rgba(61,214,140,.3);background:rgba(61,214,140,.07)}
+.s-IN_CLAIM,.s-DISPUTED{color:var(--red);border-color:rgba(242,109,109,.3);background:rgba(242,109,109,.07)}
+.s-DEFAULTED{color:var(--red);border-color:rgba(242,109,109,.35);background:rgba(242,109,109,.1)}
+.s-REPAID,.s-SETTLED{color:var(--teal);border-color:rgba(46,196,196,.3);background:rgba(46,196,196,.07)}
+.s-CANCELLED{color:var(--muted);border-color:var(--line2)}
+.empty{padding:40px;text-align:center;color:var(--muted)}
 
-  .payout { display: flex; height: 64px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--win); }
-  .payout div { display: flex; align-items: center; justify-content: center; font: 600 13px var(--mono); color: #fff; transition: flex-grow 1s ease; flex-grow: 0; min-width: 0; white-space: nowrap; overflow: hidden; }
-  .legend { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
-  .legend .card { padding: 18px; }
-  .legend .k { font: 12px var(--mono); color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
-  .legend .v { font-size: 26px; font-weight: 700; margin-top: 6px; letter-spacing: -0.02em; }
-  .legend .n { color: var(--muted); font-size: 14px; margin-top: 4px; line-height: 1.45; }
+/* loan detail */
+.detail{display:grid;grid-template-columns:1.35fr 1fr;gap:16px}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.kv .k{font:11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.kv .v{font-size:16px;margin-top:6px}
+.party{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);font-size:14px}
+.party:last-child{border-bottom:none}
+.party .who{color:var(--muted)}
+.you{font:10px var(--mono);color:#1a1205;background:var(--amber);padding:2px 6px;border-radius:5px;margin-left:8px;letter-spacing:.08em}
+.tl{position:relative;padding-left:22px}
+.tl:before{content:"";position:absolute;left:6px;top:6px;bottom:6px;width:1px;background:var(--line2)}
+.ev{position:relative;padding:0 0 18px}
+.ev:before{content:"";position:absolute;left:-20px;top:5px;width:9px;height:9px;border-radius:50%;background:var(--panel);border:2px solid var(--amber)}
+.ev.g:before{border-color:var(--green)} .ev.r:before{border-color:var(--red)} .ev.t:before{border-color:var(--teal)} .ev.b:before{border-color:var(--blue)}
+.ev .t1{font-weight:500}
+.ev .t2{font:12.5px var(--mono);color:var(--muted);margin-top:3px;word-break:break-all}
+.chainTag{font:10px var(--mono);letter-spacing:.1em;padding:2px 6px;border-radius:5px;margin-right:8px;vertical-align:1px}
+.ct-pd{color:var(--amber);background:rgba(245,165,36,.12)} .ct-eth{color:var(--blue);background:rgba(91,140,255,.12)}
+.water{display:flex;height:46px;border-radius:12px;overflow:hidden;border:1px solid var(--line);margin:14px 0 10px}
+.water div{display:flex;align-items:center;justify-content:center;font:500 12px var(--mono);color:#0a0b0f;white-space:nowrap;overflow:hidden;transition:flex-grow 1.2s cubic-bezier(.2,.8,.2,1);flex-grow:0;min-width:0}
+.legend3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;font-size:13px}
+.legend3 b{display:block;font:600 18px var(--display);margin-top:4px}
+.actions{display:flex;flex-direction:column;gap:10px}
+.act{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.act input{flex:1;min-width:160px}
+.hint{font-size:13px;color:var(--muted);line-height:1.5}
+input,select{background:var(--bg2);border:1px solid var(--line2);color:var(--ink);border-radius:12px;padding:11px 13px;font:14px var(--sans);outline:none;width:100%}
+input:focus{border-color:rgba(245,165,36,.6)}
 
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-  .stat .big { font-size: 44px; font-weight: 700; letter-spacing: -0.03em; }
-  .stat .small { color: var(--muted); margin-top: 4px; line-height: 1.45; }
+/* form */
+.form{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.field label{display:block;font:11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.preview{font:13px var(--mono);color:var(--muted);line-height:1.8}
+.preview b{color:var(--ink);font-weight:500}
 
-  table { width: 100%; border-collapse: collapse; font: 13.5px var(--mono); background: var(--win); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
-  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-weight: 400; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
-  td.addr { word-break: break-all; }
-  .note { font-size: 14px; color: var(--muted); line-height: 1.6; margin-top: 14px; }
+/* landing below hero */
+#landing{max-width:1280px;margin:0 auto;padding:40px 24px 80px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.big-n{font:600 64px var(--display);letter-spacing:-.04em}
+.feature h3{font:600 26px var(--display);letter-spacing:-.02em;margin:10px 0 8px}
+.feature p{color:var(--muted);line-height:1.6;margin:0}
+footer{border-top:1px solid var(--line);padding:28px 24px;color:var(--faint);font:12px var(--mono);display:flex;justify-content:space-between;max-width:1280px;margin:0 auto;flex-wrap:wrap;gap:12px}
 
-  footer { padding: 40px 0 64px; color: var(--muted); font: 13px var(--mono); text-align: center; }
+/* toasts */
+#toasts{position:fixed;right:20px;bottom:20px;z-index:80;display:flex;flex-direction:column;gap:10px;max-width:380px}
+.toast{background:var(--panel2);border:1px solid var(--line2);border-radius:14px;padding:14px 16px;font-size:14px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+.toast .s{font:12px var(--mono);color:var(--muted);margin-top:4px;word-break:break-all}
+.reveal{opacity:0;transform:translateY(14px)}
 
-  @media (max-width: 760px) {
-    .parts { grid-template-columns: 1fr; }
-    .arrow span { transform: rotate(90deg); }
-    .legend, .stats { grid-template-columns: 1fr; }
-    .row { grid-template-columns: 40px 1fr; }
-    .row .st { grid-column: 2; }
-    th:nth-child(2), td:nth-child(2) { display: none; }
-  }
+@media (max-width:900px){
+  .navlinks{display:none}.net{display:none}
+  .grid4{grid-template-columns:1fr 1fr}.detail,.split,.form{grid-template-columns:1fr}.kv{grid-template-columns:1fr 1fr}
+  table.loans th:nth-child(3),table.loans td:nth-child(3),table.loans th:nth-child(4),table.loans td:nth-child(4){display:none}
+}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <div class="eyebrow">Portaldot Hacker House 2026 · DaaS</div>
-    <h1>Lasso.</h1>
-    <p class="tag">Borrow on <b>Portaldot</b> against ETH that never leaves <b>Ethereum</b>. If you don’t pay, the ruling pulls the collateral home to your lenders, <b>senior first</b>.</p>
-    <div class="cta">
-      <a class="btn dark" href="#live">See the live loan</a>
-      <a class="btn" href="https://github.com/Jennivarl/lasso">GitHub</a>
-      <a class="btn" href="https://github.com/Jennivarl/lasso#how-to-test">How to test</a>
+<nav>
+  <a class="logo" href="#/">
+    <svg viewBox="0 0 32 32" fill="none"><ellipse cx="13" cy="13" rx="9" ry="7" stroke="#f5a524" stroke-width="2.4"/><path d="M19 18c3 3 4 6 8 10" stroke="#f5a524" stroke-width="2.4" stroke-linecap="round"/></svg>
+    Lasso
+  </a>
+  <div class="navlinks">
+    <a href="#/app" data-r="app">Dashboard</a>
+    <a href="#/new" data-r="new">New loan</a>
+    <a href="https://github.com/Jennivarl/lasso" target="_blank" rel="noopener">Docs</a>
+  </div>
+  <div class="spacer"></div>
+  <div class="net"><span class="pulse"></span>Portaldot <span id="pdBlock">…</span></div>
+  <div class="net"><span class="pulse" style="background:var(--blue)"></span>Sepolia <span id="ethBlock">…</span></div>
+  <button class="btn primary" id="connect">Connect wallet</button>
+</nav>
+
+<section id="hero">
+  <canvas id="fx"></canvas>
+  <div class="chip-node" id="lblPd">Portaldot · the court</div>
+  <div class="chip-node" id="lblEth">Ethereum · the collateral</div>
+  <div class="hero-copy">
+    <div class="kicker">Default-as-a-Service · Portaldot V3</div>
+    <h1>The long arm of<br><em>on-chain credit.</em></h1>
+    <p>Borrow on <b>Portaldot</b> against ETH that never leaves <b>Ethereum</b>. If a borrower stops paying, Lasso rules on Portaldot and pulls the collateral home to the lenders, <b>senior first</b>.</p>
+    <div class="hero-cta">
+      <a class="btn amber" href="#/app">Launch app</a>
+      <a class="btn" href="#/loan/0">See the live loan</a>
+      <a class="btn" href="https://github.com/Jennivarl/lasso" target="_blank" rel="noopener">GitHub</a>
     </div>
-  </header>
+  </div>
+</section>
 
-  <section>
-    <h2>Two parts, one lasso</h2>
-    <p class="sub">Lending apps only handle price drops. When a real business stops paying, nobody decides who’s right or who gets paid first, and nobody can reach collateral on another chain. Portaldot calls the fix its flagship: Default-as-a-Service.</p>
-    <div class="parts">
-      <div class="card">
-        <div class="chain" style="color:var(--amber)">PORTALDOT</div>
-        <h3>The court</h3>
-        <p>Runs the loan with a senior and a junior lender. If the borrower stops paying, a lender files a claim with a bond, the borrower can answer, 2 of 3 arbiters decide, and it issues a ruling.</p>
-      </div>
-      <div class="arrow"><span>⇄</span>proof of lock →<br>← the ruling</div>
-      <div class="card">
-        <div class="chain" style="color:var(--blue)">ETHEREUM</div>
-        <h3>The long arm</h3>
-        <p>A vault holds the borrower’s ETH. It pays out only on a valid ruling: senior first, then junior, then the surplus back to the borrower. Exactly once.</p>
-      </div>
-    </div>
-  </section>
+<section id="landing">
+  <div class="grid4" id="lstats">
+    <div class="card stat reveal"><div class="k">Loans on Portaldot</div><div class="v" id="ls0">…</div><div class="n">read live from Lasso</div></div>
+    <div class="card stat reveal"><div class="k">Defaults ruled</div><div class="v" id="ls1">…</div><div class="n">claim → ruling, on-chain</div></div>
+    <div class="card stat reveal"><div class="k">Rulings paid out</div><div class="v" id="ls2">…</div><div class="n">by the vault on Ethereum</div></div>
+    <div class="card stat reveal"><div class="k">Contract size</div><div class="v">5.9 KB</div><div class="n">built for Portaldot’s deposits</div></div>
+  </div>
+  <div class="split" style="margin-top:16px">
+    <div class="card feature reveal"><div class="kicker" style="color:var(--amber)">Portaldot</div><h3>The court</h3><p>Loans with a senior and a junior lender. Miss the due date and a lender files a claim with a bond. The borrower can answer with evidence; 2 of 3 arbiters decide. The ruling says who gets the collateral: senior, then junior, then any surplus back to the borrower.</p></div>
+    <div class="card feature reveal"><div class="kicker" style="color:var(--blue)">Ethereum</div><h3>The long arm</h3><p>The ETH stays in LassoVault on Ethereum the whole time. It moves only when a valid Portaldot ruling arrives, it pays exactly what the ruling says, and it pays once. Today a signer carries the messages; next, zero-knowledge proofs.</p></div>
+  </div>
+</section>
 
-  <section id="live">
-    <h2>Loan #0, read live from the chains</h2>
-    <p class="sub">A real loan, request to payout, on Portaldot V3 testnet and Ethereum Sepolia. Every row below is checked against the chain as this page loads.</p>
-    <div class="term">
-      <div class="bar">
-        <span class="dot" style="background:#ed6a5e"></span><span class="dot" style="background:#f5bf4f"></span><span class="dot" style="background:#62c554"></span>
-        <span class="title">lasso · loan #0</span>
-      </div>
-      <div class="rows" id="rows"></div>
-      <div class="prompt">&gt; lasso verify --live <span class="c"></span></div>
-      <div class="status" id="status">
-        <span><b style="color:var(--green)">lasso</b> portaldot v3 testnet ⇄ ethereum sepolia</span>
-        <span id="s-loan">loan #0 <b>…</b></span>
-        <span id="s-vault">vault deposit #0 <b>…</b></span>
-      </div>
-    </div>
-  </section>
+<main id="app"></main>
+<footer><span>Lasso · Portaldot Hacker House 2026 · MIT</span><span>Lasso 0x30e5…9dD1 · LassoVault 0x7C81…06E2</span></footer>
+<div id="toasts"></div>
 
-  <section>
-    <h2>The ruling, as paid on Ethereum</h2>
-    <p class="sub">Decoded from the ruling’s own event on Portaldot. The borrower owed 0.0525 POT to the senior lender and 0.0345 POT to the junior, settled at 100 POT per ETH, and repaid nothing.</p>
-    <div class="payout" id="bar">
-      <div id="b0" style="background:var(--ink)"></div>
-      <div id="b1" style="background:var(--amber)"></div>
-      <div id="b2" style="background:var(--teal)"></div>
-    </div>
-    <div class="legend">
-      <div class="card"><div class="k">senior lender</div><div class="v" id="v0">…</div><div class="n">Paid first: everything still owed to them.</div></div>
-      <div class="card"><div class="k">junior lender</div><div class="v" id="v1">…</div><div class="n">Paid second, from what is left.</div></div>
-      <div class="card"><div class="k">borrower</div><div class="v" id="v2">…</div><div class="n">The surplus goes back to them.</div></div>
-    </div>
-  </section>
+<script type="module">
+import { ethers } from "https://cdn.jsdelivr.net/npm/ethers@6.13.4/+esm";
+let animate = null, stagger = null;
+try { ({ animate, stagger } = await import("https://cdn.jsdelivr.net/npm/motion@11.11.17/+esm")); } catch (e) {}
 
-  <section>
-    <h2>Built for Portaldot</h2>
-    <p class="sub">pallet-revive holds a deposit for every byte a contract stores. Lasso is designed around it.</p>
-    <div class="stats">
-      <div class="card stat"><div class="big">0.06</div><div class="small">POT deposit per byte of code, plus 30%, read from the chain’s own constants</div></div>
-      <div class="card stat"><div class="big">1,425 → 478</div><div class="small">POT to deploy: version one vs. Lasso today, one 5.9 KB contract</div></div>
-      <div class="card stat"><div class="big">21</div><div class="small">tests pass, including 256 random loans that always pay out exactly the locked ETH</div></div>
-    </div>
-  </section>
-
-  <section>
-    <h2>Contracts</h2>
-    <table>
-      <tr><th>Contract</th><th>Chain</th><th>Address</th></tr>
-      <tr><td>Lasso</td><td>Portaldot V3 testnet</td><td class="addr">0x30e537B1FA7f59bE17440e9a49782d5Ff83D9dD1</td></tr>
-      <tr><td>LassoVault</td><td>Ethereum Sepolia</td><td class="addr"><a href="https://sepolia.etherscan.io/address/0x7C813053C1bfbEFF48Af6f8568E24972768306E2">0x7C813053C1bfbEFF48Af6f8568E24972768306E2</a></td></tr>
-      <tr><td>Road (temporary)</td><td>Ethereum Sepolia</td><td class="addr"><a href="https://sepolia.etherscan.io/address/0x3E8B7b6BcDEda05B89B93c66A7325e932A751fa8">0x3E8B7b6BcDEda05B89B93c66A7325e932A751fa8</a></td></tr>
-    </table>
-    <p class="note">Today both cross-chain messages are vouched for by one signing key (the “road”). Next, both become zero-knowledge proofs: Portaldot’s GRANDPA finality checked on Ethereum, and Ethereum’s consensus checked on Portaldot. V3’s EVM already supports the BN254 pairings that needs.</p>
-  </section>
-
-  <footer>Lasso · MIT · <a href="https://github.com/Jennivarl/lasso">github.com/Jennivarl/lasso</a></footer>
-</div>
-
-<script>
-const PD = "https://test-evm-rpc-v3.portaldot.dev";
-const ETH = "https://ethereum-sepolia-rpc.publicnode.com";
+/* ------------------------------------------------------------------ config */
+const PD = { rpc: "https://test-evm-rpc-v3.portaldot.dev", chainId: 420420777, hex: "0x190f1ca9", name: "Portaldot V3 Testnet", sym: "tPOT" };
+const ETH = { rpc: "https://ethereum-sepolia-rpc.publicnode.com", chainId: 11155111, hex: "0xaa36a7", name: "Sepolia" };
 const LASSO = "0x30e537B1FA7f59bE17440e9a49782d5Ff83D9dD1";
 const VAULT = "0x7C813053C1bfbEFF48Af6f8568E24972768306E2";
-const LOAN0_SLOT0 = "0xa6eef7e35abe7026729641147f7915573c7e97b47efa546f5f6e3230263bcb49";
-const RULING_TX = "0xba8b7cf7c8fffaae65ba78ded568151f357dbeadddec7ad2be461fcc16523bb1";
-const STATUS = ["NONE", "OPEN", "ACTIVE", "IN CLAIM", "DISPUTED", "REPAID", "DEFAULTED", "CANCELLED"];
+const ROAD = "0x3E8B7b6BcDEda05B89B93c66A7325e932A751fa8";
+const FROM_BLOCK = 341760;          // Lasso deployed in block 341,767
+const VAULT_FROM = 12073033;         // LassoVault deployed in this Sepolia block
+const BOND = ethers.parseEther("0.01");
+const GRACE = 120, WINDOW = 180;
+const ARBITERS = ["0xfA778cA9d0E75F54491D1b0C4E0f205bD02b29F1", "0x66b171F191544F119fA1Df97Dd30ed90bcEfA7d0", "0xEaad3574eA74E836373C5025fE938bd75372636d"].map(a => a.toLowerCase());
+const STATUS = ["NONE", "OPEN", "ACTIVE", "IN_CLAIM", "DISPUTED", "REPAID", "DEFAULTED", "CANCELLED"];
 
-const STEPS = [
-  ["pd", "request", "loan #0 · 0.05 senior @5% · 0.03 junior @15%", "0x30e058109981677f6ccde457d29b29b12e4be6d5a1320910a920676920092a1e"],
-  ["eth", "lock", "0.001 ETH into LassoVault · deposit #0", "0xb2af7f898b305d4415f990cbe9c75a8374ed0d2f827397e38be4a35650328f67"],
-  ["road", "in", "Portaldot accepts proof of the lock", "0x3f40ce31c8fcb073946a8ce127389ec44be2b52f5e311ffd20b0be25c5b6e259"],
-  ["pd", "fund", "senior lender · 0.05 POT", "0x827a846b7ce727e71d2cd3bf3d721a94cd49fe5a0b152f9c9cd2671002653db5"],
-  ["pd", "fund", "junior lender · 0.03 POT · loan starts", "0xdb26ef5c66fb71e530d258b43b428401570a06b5d028fbabfe5062af969c9092"],
-  ["pd", "claim", "default claim with a bond · no answer", "0x81a8ebc95db8101a75312382ccc7f861d51ede2e589413310a606dc461d159e6"],
-  ["pd", "ruling", "default ruled · senior, junior, borrower", RULING_TX],
-  ["eth", "execute", "vault pays the ruling, exactly once", "0x29430d67664625ef4d23f38108fab196d1912e39da230e179fabd2f0409d5a6e"],
+const LASSO_ABI = [
+  "function loanCount() view returns (uint256)",
+  "function rulingOf(uint256) view returns (bytes32)",
+  "function request(address vault,uint256 amounts,uint256 backing,uint256 schedule) returns (uint256)",
+  "function prove(uint256 id,uint64 depositId,bytes sig)",
+  "function fund(uint256 id,bool senior) payable",
+  "function cancel(uint256 id)",
+  "function repay(uint256 id) payable",
+  "function claim(uint256 id,bytes32 evidence) payable",
+  "function answer(uint256 id,bytes32 evidence) payable",
+  "function finalize(uint256 id)",
+  "function vote(uint256 id,bool isDefault)",
+  "event Step(uint256 indexed loanId,uint8 status,address indexed by,uint256 amount,bytes32 data)",
+  "event Ruled(uint256 indexed loanId,bytes32 commitment,(address[3] to,uint256[3] amount) payouts)",
+];
+const VAULT_ABI = [
+  "function lock(uint256 lassoChainId,address lasso,uint256 loanId) payable returns (uint256)",
+  "function execute(uint256 depositId,(address[3] to,uint256[3] amount) payouts,bytes proof)",
+  "function deposits(uint256) view returns (address depositor,uint256 amount,uint256 lassoChainId,address lasso,uint256 loanId,bool settled)",
+  "function nextDepositId() view returns (uint256)",
+  "event Locked(uint256 indexed depositId,address indexed depositor,uint256 amount,uint256 lassoChainId,address lasso,uint256 indexed loanId,bytes32 commitment)",
+  "event Settled(uint256 indexed depositId,uint256 indexed loanId,bytes32 rulingCommitment)",
 ];
 
-async function rpc(url, method, params) {
-  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
-  const j = await r.json();
-  if (j.error) throw new Error(j.error.message);
-  return j.result;
-}
-const short = h => h.slice(0, 8) + "…" + h.slice(-4);
-const eth = wei => (Number(wei) / 1e18).toString();
-const wordAt = (data, i) => data.slice(2 + i * 64, 2 + (i + 1) * 64);
+const pd = new ethers.JsonRpcProvider(PD.rpc, PD.chainId, { staticNetwork: true });
+const eth = new ethers.JsonRpcProvider(ETH.rpc, ETH.chainId, { staticNetwork: true });
+const lassoR = new ethers.Contract(LASSO, LASSO_ABI, pd);
+const vaultR = new ethers.Contract(VAULT, VAULT_ABI, eth);
+const iface = new ethers.Interface(LASSO_ABI);
 
-function row(lab, verb, what, tx, chain) {
+/* ------------------------------------------------------------------ helpers */
+const $ = s => document.querySelector(s);
+const short = a => a ? a.slice(0, 6) + "…" + a.slice(-4) : "—";
+const fmt = (wei, d = 4) => { const n = Number(ethers.formatEther(wei)); return n.toLocaleString(undefined, { maximumFractionDigits: d }); };
+const pill = s => `<span class="pill s-${s}"><i></i>${s.replace("_", " ")}</span>`;
+const when = ts => ts ? new Date(Number(ts) * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function toast(title, sub = "", ms = 6000) {
   const el = document.createElement("div");
-  el.className = "row";
-  const link = chain === "eth"
-    ? `<a class="hash" href="https://sepolia.etherscan.io/tx/${tx}" target="_blank" rel="noopener">${short(tx)}</a>`
-    : `<a class="hash" title="${tx}" href="#" onclick="navigator.clipboard&&navigator.clipboard.writeText('${tx}');return false">${short(tx)}</a>`;
-  el.innerHTML = `<span class="lab">${lab}</span><span class="what"><b>${verb}</b> <span class="muted">${what}</span> · ${link}</span><span class="st">checking…</span>`;
+  el.className = "toast"; el.innerHTML = `<div>${esc(title)}</div>${sub ? `<div class="s">${esc(sub)}</div>` : ""}`;
+  $("#toasts").appendChild(el);
+  if (animate) animate(el, { opacity: [0, 1], x: [24, 0] }, { duration: .35 });
+  setTimeout(() => el.remove(), ms);
   return el;
 }
-
-async function main() {
-  const rows = document.getElementById("rows");
-  const els = STEPS.map(([lab, verb, what, tx]) => {
-    const chain = lab === "eth" ? "eth" : "pd";
-    const el = row(lab, verb, what, tx, chain);
-    rows.appendChild(el);
-    return [el, chain, tx];
-  });
-  els.forEach(([el], i) => setTimeout(() => el.classList.add("on"), 120 * i));
-
-  await Promise.all(els.map(async ([el, chain, tx]) => {
-    const st = el.querySelector(".st");
-    try {
-      const r = await rpc(chain === "eth" ? ETH : PD, "eth_getTransactionReceipt", [tx]);
-      if (r && r.status === "0x1") { st.textContent = "✓ block " + parseInt(r.blockNumber, 16).toLocaleString(); st.classList.add("ok"); }
-      else { st.textContent = r ? "✗ failed" : "not found"; st.classList.add("bad"); }
-    } catch (e) { st.textContent = "rpc unavailable"; }
-  }));
-
-  try {
-    const w = BigInt(await rpc(PD, "eth_getStorageAt", [LASSO, LOAN0_SLOT0, "latest"]));
-    const s = Number((w >> 160n) & 0xffn);
-    document.querySelector("#s-loan b").textContent = STATUS[s] || "?";
-    document.querySelector("#s-loan b").style.color = s === 6 ? "var(--red)" : "var(--green)";
-  } catch (e) { document.querySelector("#s-loan b").textContent = "rpc unavailable"; }
-
-  try {
-    const d = await rpc(ETH, "eth_call", [{ to: VAULT, data: "0xb02c43d0" + "0".repeat(64) }, "latest"]);
-    const settled = BigInt("0x" + wordAt(d, 5)) === 1n;
-    const b = document.querySelector("#s-vault b");
-    b.textContent = settled ? "SETTLED" : "LOCKED"; b.style.color = settled ? "var(--teal)" : "var(--amber)";
-  } catch (e) { document.querySelector("#s-vault b").textContent = "rpc unavailable"; }
-
-  try {
-    const r = await rpc(PD, "eth_getTransactionReceipt", [RULING_TX]);
-    const log = r.logs.find(l => (l.data.length - 2) / 64 === 7);
-    const amounts = [4, 5, 6].map(i => BigInt("0x" + wordAt(log.data, i)));
-    const total = amounts.reduce((a, b) => a + b, 0n);
-    amounts.forEach((a, i) => {
-      document.getElementById("v" + i).textContent = eth(a) + " ETH";
-      const bar = document.getElementById("b" + i);
-      bar.style.flexGrow = Number(a * 1000n / total);
-      bar.textContent = Math.round(Number(a * 100n / total)) + "%";
-    });
-  } catch (e) { ["v0", "v1", "v2"].forEach(id => document.getElementById(id).textContent = "—"); }
+function reveal(root = document) {
+  const els = [...root.querySelectorAll(".reveal")];
+  if (!els.length) return;
+  if (animate) animate(els, { opacity: [0, 1], y: [14, 0] }, { delay: stagger(.06), duration: .5, easing: [.2, .8, .2, 1] });
+  else els.forEach(e => { e.style.opacity = 1; e.style.transform = "none"; });
 }
-main();
+function countUp(el, to) {
+  if (!animate) { el.textContent = to; return; }
+  animate(0, to, { duration: 1.1, onUpdate: v => el.textContent = Math.round(v).toLocaleString() });
+}
+
+/* ------------------------------------------------------------------ chain reads */
+const slotBase = id => BigInt(ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(["uint256", "uint256"], [id, 1])));
+const bits = (w, from, len) => (w >> BigInt(from)) & ((1n << BigInt(len)) - 1n);
+const addr = w => ethers.getAddress("0x" + bits(w, 0, 160).toString(16).padStart(40, "0"));
+
+async function readLoan(id) {
+  const base = slotBase(id);
+  const raw = await Promise.all([...Array(8).keys()].map(i => pd.getStorage(LASSO, base + BigInt(i))));
+  const s = raw.map(x => BigInt(x));
+  const L = {
+    id, borrower: addr(s[0]), status: STATUS[Number(bits(s[0], 160, 8))], flags: Number(bits(s[0], 168, 8)),
+    votesDefault: Number(bits(s[0], 176, 8)), votesPaid: Number(bits(s[0], 184, 8)), fundBy: bits(s[0], 192, 64),
+    vault: addr(s[1]), dueAt: bits(s[1], 160, 64), seniorBps: Number(bits(s[1], 224, 16)), juniorBps: Number(bits(s[1], 240, 16)),
+    senior: addr(s[2]), deadline: bits(s[2], 160, 64), junior: addr(s[3]), depositId: bits(s[3], 160, 64),
+    claimant: addr(s[4]), vaultChainId: bits(s[4], 160, 64),
+    seniorAmount: bits(s[5], 0, 128), juniorAmount: bits(s[5], 128, 128), collateral: bits(s[6], 0, 128), price: bits(s[6], 128, 128),
+    repaid: bits(s[7], 0, 128),
+  };
+  L.proven = (L.flags & 4) !== 0;
+  L.seniorOwed = L.seniorAmount * BigInt(10000 + L.seniorBps) / 10000n;
+  L.juniorOwed = L.juniorAmount * BigInt(10000 + L.juniorBps) / 10000n;
+  L.owed = L.seniorOwed + L.juniorOwed;
+  return L;
+}
+
+let LOGS = null;
+async function readLogs() {
+  if (LOGS) return LOGS;
+  const [steps, ruled] = await Promise.all([
+    pd.getLogs({ address: LASSO, fromBlock: FROM_BLOCK, toBlock: "latest", topics: [iface.getEvent("Step").topicHash] }),
+    pd.getLogs({ address: LASSO, fromBlock: FROM_BLOCK, toBlock: "latest", topics: [iface.getEvent("Ruled").topicHash] }),
+  ]);
+  LOGS = { steps: steps.map(l => ({ ...iface.parseLog(l), tx: l.transactionHash, block: l.blockNumber })),
+           ruled: ruled.map(l => ({ ...iface.parseLog(l), tx: l.transactionHash, block: l.blockNumber })) };
+  return LOGS;
+}
+let VLOGS = null;
+async function readVault() {
+  if (VLOGS) return VLOGS;
+  const vi = new ethers.Interface(VAULT_ABI);
+  const [locked, settled] = await Promise.all([
+    eth.getLogs({ address: VAULT, fromBlock: VAULT_FROM, toBlock: "latest", topics: [vi.getEvent("Locked").topicHash] }),
+    eth.getLogs({ address: VAULT, fromBlock: VAULT_FROM, toBlock: "latest", topics: [vi.getEvent("Settled").topicHash] }),
+  ]);
+  VLOGS = { locked: locked.map(l => ({ ...vi.parseLog(l), tx: l.transactionHash })), settled: settled.map(l => ({ ...vi.parseLog(l), tx: l.transactionHash })) };
+  return VLOGS;
+}
+
+/* ------------------------------------------------------------------ wallet */
+let signer = null, account = null;
+async function connect() {
+  if (!window.ethereum) { toast("No wallet found", "Install MetaMask (or any EVM wallet) to act on loans. Reading works without one."); return; }
+  const bp = new ethers.BrowserProvider(window.ethereum);
+  await bp.send("eth_requestAccounts", []);
+  signer = await bp.getSigner(); account = (await signer.getAddress()).toLowerCase();
+  $("#connect").textContent = short(account);
+  route();
+}
+async function onChain(c) {
+  const params = c === PD
+    ? { chainId: PD.hex, chainName: PD.name, rpcUrls: [PD.rpc], nativeCurrency: { name: "tPOT", symbol: "tPOT", decimals: 18 } }
+    : null;
+  try { await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: c.hex }] }); }
+  catch (e) { if (params && (e.code === 4902 || /Unrecognized|not been added/i.test(e.message))) await window.ethereum.request({ method: "wallet_addEthereumChain", params: [params] }); else throw e; }
+  const bp = new ethers.BrowserProvider(window.ethereum);
+  signer = await bp.getSigner();
+  return signer;
+}
+async function send(chain, label, build) {
+  if (!signer) await connect();
+  if (!signer) return;
+  const t = toast(label, "Confirm in your wallet…", 60000);
+  try {
+    const s = await onChain(chain);
+    const opts = {};
+    if (chain === PD) {
+      // Portaldot holds a storage deposit inside "gas": send the node's own estimate, unpadded, as a legacy tx.
+      const { fn, args, value } = build(s);
+      const est = await fn.estimateGas(...args, { value: value || 0n });
+      const gp = BigInt(await pd.send("eth_gasPrice", []));
+      opts.gasLimit = est; opts.gasPrice = gp; opts.type = 0; if (value) opts.value = value;
+      const tx = await fn(...args, opts);
+      t.querySelector(".s").textContent = "Sent " + short(tx.hash) + " · waiting for Portaldot…";
+      await tx.wait();
+      t.remove(); toast("✓ " + label, tx.hash);
+    } else {
+      const { fn, args, value } = build(s);
+      const tx = await fn(...args, value ? { value } : {});
+      t.querySelector(".s").textContent = "Sent " + short(tx.hash) + " · waiting for Sepolia…";
+      await tx.wait();
+      t.remove(); toast("✓ " + label, tx.hash);
+    }
+    LOGS = null; VLOGS = null; route();
+  } catch (e) {
+    t.remove(); toast("✗ " + label, (e.shortMessage || e.message || "failed").slice(0, 220), 10000);
+  }
+}
+
+/* ------------------------------------------------------------------ views */
+async function viewDashboard() {
+  const app = $("#app");
+  app.innerHTML = `
+    <div class="page-h"><div><h2>Dashboard</h2><div class="sub">Every loan, read live from Lasso on Portaldot and the vault on Ethereum.</div></div>
+      <a class="btn amber" href="#/new">New loan</a></div>
+    <div class="grid4">
+      <div class="card stat reveal"><div class="k">Loans</div><div class="v" id="d0">…</div><div class="n">on Portaldot V3</div></div>
+      <div class="card stat reveal"><div class="k">Collateral locked</div><div class="v" id="d1">…</div><div class="n">ETH in LassoVault, unsettled</div></div>
+      <div class="card stat reveal"><div class="k">Defaults ruled</div><div class="v" id="d2">…</div><div class="n">senior-first payouts</div></div>
+      <div class="card stat reveal"><div class="k">Settled on Ethereum</div><div class="v" id="d3">…</div><div class="n">rulings carried out</div></div>
+    </div>
+    <div class="section-t">Loans</div>
+    <div class="card reveal" style="padding:0;overflow:auto">
+      <table class="loans"><thead><tr><th>Loan</th><th>Borrower</th><th>Senior / Junior</th><th>Collateral</th><th>Due</th><th>Status</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="6" class="empty">Reading Portaldot…</td></tr></tbody></table>
+    </div>`;
+  reveal(app);
+  try {
+    const n = Number(await lassoR.loanCount());
+    const [loans, logs, vlogs] = await Promise.all([Promise.all([...Array(n).keys()].map(readLoan)), readLogs(), readVault().catch(() => ({ locked: [], settled: [] }))]);
+    countUp($("#d0"), n);
+    const settledDeps = new Set(vlogs.settled.map(s => s.args.depositId.toString()));
+    const unsettled = vlogs.locked.filter(l => !settledDeps.has(l.args.depositId.toString())).reduce((a, l) => a + l.args.amount, 0n);
+    $("#d1").textContent = fmt(unsettled, 4) + " ETH";
+    countUp($("#d2"), loans.filter(l => l.status === "DEFAULTED").length);
+    countUp($("#d3"), vlogs.settled.length);
+    $("#rows").innerHTML = loans.length ? loans.slice().reverse().map(l => {
+      const settled = vlogs.settled.some(s => s.args.loanId === BigInt(l.id));
+      const st = settled ? "SETTLED" : l.status;
+      return `<tr class="r" data-id="${l.id}"><td class="mono">#${l.id}</td><td class="mono">${short(l.borrower)}</td>
+        <td>${fmt(l.seniorAmount)} <span class="muted">@${l.seniorBps / 100}%</span> / ${fmt(l.juniorAmount)} <span class="muted">@${l.juniorBps / 100}%</span> <span class="muted">tPOT</span></td>
+        <td>${fmt(l.collateral, 6)} ETH</td><td class="muted">${when(l.dueAt)}</td><td>${pill(st)}</td></tr>`;
+    }).join("") : `<tr><td colspan="6" class="empty">No loans yet. <a href="#/new" style="color:var(--amber)">Create the first one →</a></td></tr>`;
+    document.querySelectorAll("tr.r").forEach(tr => tr.onclick = () => location.hash = "#/loan/" + tr.dataset.id);
+    if (animate) animate("tr.r", { opacity: [0, 1], y: [8, 0] }, { delay: stagger(.05), duration: .4 });
+  } catch (e) { $("#rows").innerHTML = `<tr><td colspan="6" class="empty">Couldn’t reach Portaldot: ${esc(e.shortMessage || e.message)}</td></tr>`; }
+}
+
+function roleOf(L) {
+  if (!account) return [];
+  const r = [];
+  if (account === L.borrower.toLowerCase()) r.push("borrower");
+  if (account === L.senior.toLowerCase()) r.push("senior");
+  if (account === L.junior.toLowerCase()) r.push("junior");
+  if (ARBITERS.includes(account)) r.push("arbiter");
+  return r;
+}
+
+async function viewLoan(id) {
+  const app = $("#app");
+  app.innerHTML = `<div class="page-h"><div><div class="sub"><a href="#/app">← Dashboard</a></div><h2>Loan #${id}</h2></div><div id="hstat"></div></div><div id="body" class="empty">Reading Portaldot and Sepolia…</div>`;
+  let L, logs, vlogs;
+  try { [L, logs, vlogs] = await Promise.all([readLoan(id), readLogs(), readVault().catch(() => ({ locked: [], settled: [] }))]); }
+  catch (e) { $("#body").textContent = "Couldn’t read the chains: " + (e.shortMessage || e.message); return; }
+  if (L.status === "NONE") { $("#body").innerHTML = "This loan doesn’t exist yet."; return; }
+  const settle = vlogs.settled.find(s => s.args.loanId === BigInt(id));
+  const lock = vlogs.locked.find(l => l.args.loanId === BigInt(id) && l.args.depositId === L.depositId) || vlogs.locked.find(l => l.args.loanId === BigInt(id));
+  const ruled = logs.ruled.find(r => r.args.loanId === BigInt(id));
+  const st = settle ? "SETTLED" : L.status;
+  $("#hstat").innerHTML = pill(st);
+  const roles = roleOf(L);
+  const youTag = who => roles.includes(who) ? `<span class="you">YOU</span>` : "";
+
+  // timeline
+  const ev = [];
+  const labelOf = (s) => {
+    const by = s.args.by.toLowerCase(), amt = s.args.amount, st = STATUS[Number(s.args.status)];
+    const d = s.args.data;
+    if (st === "OPEN" && by === L.borrower.toLowerCase() && amt === (L.seniorAmount << 128n | L.juniorAmount)) return ["Loan requested", `${fmt(L.seniorAmount + L.juniorAmount)} tPOT · backed by ${fmt(L.collateral, 6)} ETH`, ""];
+    if (st === "OPEN" && d === ethers.encodeBytes32String("senior")) return ["Senior lender funded", `${fmt(amt)} tPOT · ${short(s.args.by)}`, "g"];
+    if (st === "OPEN" && d === ethers.encodeBytes32String("junior")) return ["Junior lender funded", `${fmt(amt)} tPOT · ${short(s.args.by)}`, "g"];
+    if (st === "OPEN") return ["Collateral proven (Road In)", `deposit #${amt} · fingerprint ${short(d)}`, "b"];
+    if (st === "ACTIVE" && d === ethers.ZeroHash) return ["Loan started", `${fmt(amt)} tPOT paid to the borrower`, "g"];
+    if (st === "IN_CLAIM") return ["Default claim filed", `bond ${fmt(amt)} tPOT · evidence ${short(d)}`, "r"];
+    if (st === "DISPUTED" && amt === BOND) return ["Borrower answered", `bond ${fmt(amt)} tPOT · evidence ${short(d)}`, ""];
+    if (st === "DISPUTED") return [amt === 1n ? "Arbiter voted: default" : "Arbiter voted: paid", short(s.args.by), ""];
+    if (st === "CANCELLED") return ["Loan cancelled", "", ""];
+    return ["Repayment", `${fmt(amt)} tPOT · senior first`, "g"];
+  };
+  logs.steps.filter(s => s.args.loanId === BigInt(id)).forEach(s => { const [a, b, c] = labelOf(s); ev.push({ c: "pd", t1: a, t2: b, cls: c, tx: s.tx, block: s.block }); });
+  if (lock) ev.splice(1, 0, { c: "eth", t1: "ETH locked in LassoVault", t2: `${fmt(lock.args.amount, 6)} ETH · deposit #${lock.args.depositId}`, cls: "b", tx: lock.tx, block: 0 });
+  if (ruled) ev.push({ c: "pd", t1: "Ruling issued", t2: `fingerprint ${short(ruled.args.commitment)}`, cls: "r", tx: ruled.tx });
+  if (settle) ev.push({ c: "eth", t1: "Vault paid the ruling (Road Out)", t2: "exactly once", cls: "t", tx: settle.tx });
+
+  // payouts
+  let pay = null;
+  if (ruled) pay = { to: ruled.args.payouts.to, amount: ruled.args.payouts.amount };
+  const total = pay ? pay.amount.reduce((a, b) => a + b, 0n) : 0n;
+
+  const now = Math.floor(Date.now() / 1000);
+  const actions = [];
+  const isB = roles.includes("borrower"), isS = roles.includes("senior"), isJ = roles.includes("junior"), isA = roles.includes("arbiter");
+  if (!account) actions.push(`<div class="hint">Connect a wallet to act on this loan. Your role (borrower, lender, arbiter) is detected automatically.</div><button class="btn primary" id="a-connect">Connect wallet</button>`);
+  if (account && L.status === "OPEN") {
+    if (isB && !lock) actions.push(`<div class="act"><button class="btn amber" id="a-lock">Lock ${fmt(L.collateral, 6)} ETH on Sepolia</button></div>`);
+    if (!L.proven) actions.push(`<div class="hint">Road In: paste the signature that proves the lock (from the road service).</div><div class="act"><input id="i-proof" placeholder="0x… road proof"><button class="btn" id="a-prove">Prove</button></div>`);
+    if (L.proven && !isB && L.senior === ethers.ZeroAddress && L.seniorAmount > 0n) actions.push(`<div class="act"><button class="btn amber" id="a-fs">Fund senior · ${fmt(L.seniorAmount)} tPOT</button></div>`);
+    if (L.proven && !isB && L.junior === ethers.ZeroAddress && L.juniorAmount > 0n) actions.push(`<div class="act"><button class="btn" id="a-fj">Fund junior · ${fmt(L.juniorAmount)} tPOT</button></div>`);
+    if (isB || now > Number(L.fundBy)) actions.push(`<div class="act"><button class="btn" id="a-cancel">Cancel loan</button></div>`);
+  }
+  if (account && ["ACTIVE", "IN_CLAIM", "DISPUTED"].includes(L.status) && isB) actions.push(`<div class="act"><input id="i-repay" placeholder="Amount in tPOT (owed ${fmt(L.owed - L.repaid)})"><button class="btn amber" id="a-repay">Repay</button></div>`);
+  if (account && L.status === "ACTIVE" && (isS || isJ)) actions.push(now > Number(L.dueAt) + GRACE
+    ? `<div class="act"><input id="i-ev" placeholder="Evidence, e.g. “missed final payment”"><button class="btn" id="a-claim" style="border-color:rgba(242,109,109,.5);color:var(--red)">File default claim · bond 0.01</button></div>`
+    : `<div class="hint">Claims open after the due date plus ${GRACE / 60} minutes’ grace (${when(L.dueAt + BigInt(GRACE))}).</div>`);
+  if (account && L.status === "IN_CLAIM" && isB && now <= Number(L.deadline)) actions.push(`<div class="act"><input id="i-ans" placeholder="Your evidence, e.g. bank receipt #"><button class="btn amber" id="a-answer">Answer the claim · bond 0.01</button></div>`);
+  if (account && L.status === "DISPUTED" && isA && now <= Number(L.deadline)) actions.push(`<div class="act"><button class="btn" id="a-vd" style="color:var(--red)">Vote: defaulted</button><button class="btn" id="a-vp" style="color:var(--green)">Vote: paid</button></div>`);
+  if (account && ["IN_CLAIM", "DISPUTED"].includes(L.status) && now > Number(L.deadline)) actions.push(`<div class="act"><button class="btn amber" id="a-final">Finalize · the default stands</button></div>`);
+  if (account && ruled && !settle) actions.push(`<div class="hint">Road Out: paste the proof of this ruling to have the vault pay it on Ethereum.</div><div class="act"><input id="i-rproof" placeholder="0x… ruling proof"><button class="btn amber" id="a-exec">Execute on Sepolia</button></div>`);
+  if (account && !actions.length) actions.push(`<div class="hint">Nothing for your wallet to do on this loan right now.</div>`);
+
+  $("#body").className = "";
+  $("#body").innerHTML = `
+    <div class="detail">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card reveal">
+          <div class="kv">
+            <div><div class="k">Senior</div><div class="v">${fmt(L.seniorAmount)} tPOT <span class="muted">@ ${L.seniorBps / 100}%</span></div></div>
+            <div><div class="k">Junior</div><div class="v">${fmt(L.juniorAmount)} tPOT <span class="muted">@ ${L.juniorBps / 100}%</span></div></div>
+            <div><div class="k">Owed</div><div class="v">${fmt(L.owed)} tPOT</div></div>
+            <div><div class="k">Collateral</div><div class="v">${fmt(L.collateral, 6)} ETH</div></div>
+            <div><div class="k">Settles at</div><div class="v">${fmt(L.price, 2)} tPOT / ETH</div></div>
+            <div><div class="k">Repaid</div><div class="v">${fmt(L.repaid)} tPOT</div></div>
+            <div><div class="k">Fund by</div><div class="v muted">${when(L.fundBy)}</div></div>
+            <div><div class="k">Due</div><div class="v muted">${when(L.dueAt)}</div></div>
+            <div><div class="k">Collateral chain</div><div class="v muted">${Number(L.vaultChainId) === ETH.chainId ? "Ethereum Sepolia" : L.vaultChainId}</div></div>
+          </div>
+        </div>
+        <div class="card reveal">
+          <div class="section-t" style="margin-top:0">History · read from chain</div>
+          <div class="tl">${ev.map(e => `<div class="ev ${e.cls}"><div class="t1"><span class="chainTag ct-${e.c}">${e.c === "pd" ? "PORTALDOT" : "SEPOLIA"}</span>${esc(e.t1)}</div>
+            <div class="t2">${esc(e.t2)}${e.t2 ? " · " : ""}${e.c === "eth" ? `<a href="https://sepolia.etherscan.io/tx/${e.tx}" target="_blank" rel="noopener" style="color:var(--blue)">${short(e.tx)} ↗</a>` : `<span title="${e.tx}">${short(e.tx)}</span>`}</div></div>`).join("") || `<div class="muted">No events yet.</div>`}</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card reveal">
+          <div class="section-t" style="margin-top:0">Parties</div>
+          <div class="party"><span class="who">Borrower${youTag("borrower")}</span><span class="mono">${short(L.borrower)}</span></div>
+          <div class="party"><span class="who">Senior lender${youTag("senior")}</span><span class="mono">${L.senior === ethers.ZeroAddress ? "open" : short(L.senior)}</span></div>
+          <div class="party"><span class="who">Junior lender${youTag("junior")}</span><span class="mono">${L.junior === ethers.ZeroAddress ? "open" : short(L.junior)}</span></div>
+          <div class="party"><span class="who">Arbiters${roles.includes("arbiter") ? `<span class="you">YOU</span>` : ""}</span><span class="mono">2 of 3</span></div>
+        </div>
+        <div class="card reveal">
+          <div class="section-t" style="margin-top:0">${pay ? "The ruling · paid on Ethereum" : "If it defaults · payout order"}</div>
+          ${pay ? `<div class="water"><div id="w0" style="background:var(--amber)"></div><div id="w1" style="background:var(--violet)"></div><div id="w2" style="background:var(--teal)"></div></div>
+          <div class="legend3"><div><span class="muted">Senior</span><b>${fmt(pay.amount[0], 6)} ETH</b></div><div><span class="muted">Junior</span><b>${fmt(pay.amount[1], 6)} ETH</b></div><div><span class="muted">Borrower</span><b>${fmt(pay.amount[2], 6)} ETH</b></div></div>`
+          : `<div class="hint">1. Senior lender: what they’re still owed, ${fmt(L.seniorOwed)} tPOT less repayments.<br>2. Junior lender: the same, from what’s left.<br>3. Borrower: any surplus collateral back.</div>`}
+        </div>
+        <div class="card reveal">
+          <div class="section-t" style="margin-top:0">Actions${roles.length ? " · " + roles.join(", ") : ""}</div>
+          <div class="actions">${actions.join("")}</div>
+        </div>
+      </div>
+    </div>`;
+  reveal($("#body"));
+  if (pay) setTimeout(() => pay.amount.forEach((a, i) => { const w = $("#w" + i); w.style.flexGrow = Number(a * 1000n / total); w.textContent = a ? Math.round(Number(a * 100n / total)) + "%" : ""; }), 250);
+  if (animate) animate(".ev", { opacity: [0, 1], x: [-8, 0] }, { delay: stagger(.07, { start: .2 }), duration: .4 });
+
+  // wire actions
+  const lassoW = s => new ethers.Contract(LASSO, LASSO_ABI, s);
+  const on = (sel, f) => { const b = $(sel); if (b) b.onclick = f; };
+  on("#a-connect", connect);
+  on("#a-lock", () => send(ETH, `Lock ${fmt(L.collateral, 6)} ETH for loan #${id}`, s => ({ fn: new ethers.Contract(VAULT, VAULT_ABI, s).lock, args: [PD.chainId, LASSO, id], value: L.collateral })));
+  on("#a-prove", () => send(PD, `Prove collateral for loan #${id}`, s => ({ fn: lassoW(s).prove, args: [id, lock ? lock.args.depositId : 0n, $("#i-proof").value.trim()] })));
+  on("#a-fs", () => send(PD, `Fund senior tranche of loan #${id}`, s => ({ fn: lassoW(s).fund, args: [id, true], value: L.seniorAmount })));
+  on("#a-fj", () => send(PD, `Fund junior tranche of loan #${id}`, s => ({ fn: lassoW(s).fund, args: [id, false], value: L.juniorAmount })));
+  on("#a-cancel", () => send(PD, `Cancel loan #${id}`, s => ({ fn: lassoW(s).cancel, args: [id] })));
+  on("#a-repay", () => send(PD, `Repay loan #${id}`, s => ({ fn: lassoW(s).repay, args: [id], value: ethers.parseEther($("#i-repay").value.trim() || "0") })));
+  on("#a-claim", () => send(PD, `Default claim on loan #${id}`, s => ({ fn: lassoW(s).claim, args: [id, ethers.keccak256(ethers.toUtf8Bytes($("#i-ev").value || "missed payment"))], value: BOND })));
+  on("#a-answer", () => send(PD, `Answer claim on loan #${id}`, s => ({ fn: lassoW(s).answer, args: [id, ethers.keccak256(ethers.toUtf8Bytes($("#i-ans").value || "paid off-chain"))], value: BOND })));
+  on("#a-vd", () => send(PD, `Vote “defaulted” on loan #${id}`, s => ({ fn: lassoW(s).vote, args: [id, true] })));
+  on("#a-vp", () => send(PD, `Vote “paid” on loan #${id}`, s => ({ fn: lassoW(s).vote, args: [id, false] })));
+  on("#a-final", () => send(PD, `Finalize loan #${id}`, s => ({ fn: lassoW(s).finalize, args: [id] })));
+  on("#a-exec", () => send(ETH, `Execute ruling for loan #${id}`, s => ({ fn: new ethers.Contract(VAULT, VAULT_ABI, s).execute, args: [L.depositId, { to: pay.to, amount: pay.amount }, $("#i-rproof").value.trim()] })));
+}
+
+function viewNew() {
+  const app = $("#app");
+  const nowMin = new Date(Date.now() + 10 * 60000);
+  app.innerHTML = `
+    <div class="page-h"><div><h2>New loan</h2><div class="sub">Ask on Portaldot. Your ETH stays on Ethereum until a ruling says otherwise.</div></div></div>
+    <div class="detail">
+      <div class="card reveal"><div class="form">
+        <div class="field"><label>Senior amount · tPOT</label><input id="f-sa" value="0.05"></div>
+        <div class="field"><label>Senior interest · %</label><input id="f-sr" value="5"></div>
+        <div class="field"><label>Junior amount · tPOT</label><input id="f-ja" value="0.03"></div>
+        <div class="field"><label>Junior interest · %</label><input id="f-jr" value="15"></div>
+        <div class="field"><label>Collateral · ETH on Sepolia</label><input id="f-c" value="0.001"></div>
+        <div class="field"><label>Settlement price · tPOT per ETH</label><input id="f-p" value="100"></div>
+        <div class="field"><label>Funding window · minutes</label><input id="f-fw" value="30"></div>
+        <div class="field"><label>Due · minutes after funding window</label><input id="f-due" value="60"></div>
+      </div></div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card reveal"><div class="section-t" style="margin-top:0">Summary</div><div class="preview" id="pv"></div></div>
+        <div class="card reveal"><div class="hint">Portaldot holds a storage deposit for every new value a contract stores: about <b style="color:var(--ink)">24 tPOT</b> to open a loan, refundable by design of the chain. Keep that much in your wallet.</div>
+          <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn amber" id="f-go">Request loan on Portaldot</button></div></div>
+      </div>
+    </div>`;
+  reveal(app);
+  const v = id => $(id).value.trim();
+  const preview = () => {
+    try {
+      const sa = Number(v("#f-sa")), sr = Number(v("#f-sr")), ja = Number(v("#f-ja")), jr = Number(v("#f-jr")), c = Number(v("#f-c")), p = Number(v("#f-p"));
+      const owedS = sa * (1 + sr / 100), owedJ = ja * (1 + jr / 100);
+      $("#pv").innerHTML = `You receive <b>${(sa + ja).toFixed(4)} tPOT</b> once both tranches fund.<br>You owe <b>${(owedS + owedJ).toFixed(4)} tPOT</b>: senior ${owedS.toFixed(4)}, junior ${owedJ.toFixed(4)}.<br>Backed by <b>${c} ETH</b>, worth <b>${(c * p).toFixed(2)} tPOT</b> at settlement.<br>Coverage: <b>${((c * p) / (owedS + owedJ) * 100).toFixed(0)}%</b> of what you owe.`;
+    } catch (e) {}
+  };
+  app.querySelectorAll("input").forEach(i => i.oninput = preview); preview();
+  $("#f-go").onclick = () => send(PD, "Request a loan on Portaldot", s => {
+    const sa = ethers.parseEther(v("#f-sa")), ja = ethers.parseEther(v("#f-ja")), c = ethers.parseEther(v("#f-c")), p = ethers.parseEther(v("#f-p"));
+    const now = BigInt(Math.floor(Date.now() / 1000)), fundBy = now + BigInt(Math.round(Number(v("#f-fw")) * 60)), due = fundBy + BigInt(Math.round(Number(v("#f-due")) * 60));
+    const sr = BigInt(Math.round(Number(v("#f-sr")) * 100)), jr = BigInt(Math.round(Number(v("#f-jr")) * 100));
+    const amounts = (sa << 128n) | ja, backing = (c << 128n) | p;
+    const schedule = (BigInt(ETH.chainId) << 192n) | (fundBy << 128n) | (due << 64n) | (sr << 16n) | jr;
+    return { fn: new ethers.Contract(LASSO, LASSO_ABI, s).request, args: [VAULT, amounts, backing, schedule] };
+  });
+}
+
+/* ------------------------------------------------------------------ router */
+function route() {
+  const h = location.hash || "#/";
+  document.querySelectorAll(".navlinks a[data-r]").forEach(a => a.classList.toggle("on", h.startsWith("#/" + a.dataset.r)));
+  if (h === "#/" || h === "#") { document.body.classList.remove("app"); window.scrollTo(0, 0); return; }
+  document.body.classList.add("app"); window.scrollTo(0, 0);
+  const m = h.match(/^#\/loan\/(\d+)/);
+  if (m) return viewLoan(Number(m[1]));
+  if (h.startsWith("#/new")) return viewNew();
+  return viewDashboard();
+}
+window.addEventListener("hashchange", route);
+$("#connect").onclick = connect;
+if (window.ethereum) window.ethereum.on?.("accountsChanged", a => { account = a[0]?.toLowerCase() || null; signer = null; $("#connect").textContent = account ? short(account) : "Connect wallet"; route(); });
+
+/* landing stats + live blocks */
+(async () => {
+  try {
+    const n = Number(await lassoR.loanCount());
+    countUp($("#ls0"), n);
+    const loans = await Promise.all([...Array(n).keys()].map(readLoan));
+    countUp($("#ls1"), loans.filter(l => l.status === "DEFAULTED").length);
+    const v = await readVault(); countUp($("#ls2"), v.settled.length);
+  } catch (e) {}
+})();
+async function blocks() {
+  try { $("#pdBlock").textContent = "#" + (await pd.getBlockNumber()).toLocaleString(); } catch (e) {}
+  try { $("#ethBlock").textContent = "#" + (await eth.getBlockNumber()).toLocaleString(); } catch (e) {}
+}
+blocks(); setInterval(blocks, 12000);
+route(); reveal(document);
+
+/* ------------------------------------------------------------------ hero: a lasso of light from Portaldot around Ethereum */
+const cv = $("#fx"), cx = cv.getContext("2d");
+let Wd, Ht, DPR, mx = 0, my = 0, tmx = 0, tmy = 0;
+function size() { DPR = Math.min(2, devicePixelRatio || 1); Wd = cv.clientWidth; Ht = cv.clientHeight; cv.width = Wd * DPR; cv.height = Ht * DPR; cx.setTransform(DPR, 0, 0, DPR, 0, 0); }
+size(); addEventListener("resize", size);
+addEventListener("mousemove", e => { tmx = (e.clientX / innerWidth - .5); tmy = (e.clientY / innerHeight - .5); });
+const P = 1400, parts = [...Array(P)].map((_, i) => ({ u: Math.random(), sp: .00045 + Math.random() * .0009, off: (Math.random() - .5) * 2, sz: Math.random() * 1.6 + .3, hue: Math.random() }));
+const stars = [...Array(160)].map(() => ({ x: Math.random(), y: Math.random(), r: Math.random() * 1.1, a: Math.random() * .5 + .1 }));
+function nodes() {
+  const s = Math.min(Wd, Ht);
+  return { a: { x: Wd * .78 + mx * 30, y: Ht * .3 + my * 20, r: s * .05 }, b: { x: Wd * .38 + mx * 60, y: Ht * .36 + my * 40, r: s * .06 } };
+}
+// path: from Portaldot (a) along a rope that loops around Ethereum (b)
+function pathPt(u, n) {
+  const { a, b } = n, loopR = Math.min(Wd, Ht) * .16;
+  if (u < .45) {
+    const t = u / .45, c1 = { x: (a.x + b.x) / 2, y: Math.min(a.y, b.y) - Ht * .18 }, end = { x: b.x + loopR, y: b.y };
+    const x = (1 - t) ** 2 * a.x + 2 * (1 - t) * t * c1.x + t * t * end.x, y = (1 - t) ** 2 * a.y + 2 * (1 - t) * t * c1.y + t * t * end.y;
+    return [x, y];
+  }
+  const t = (u - .45) / .55, ang = t * Math.PI * 2;
+  return [b.x + Math.cos(ang) * loopR, b.y + Math.sin(ang) * loopR * .62];
+}
+function glow(x, y, r, col) {
+  const g = cx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, col.replace("A", ".9")); g.addColorStop(.25, col.replace("A", ".35")); g.addColorStop(1, col.replace("A", "0"));
+  cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
+}
+function frame(t) {
+  if (document.body.classList.contains("app")) { requestAnimationFrame(frame); return; }
+  mx += (tmx - mx) * .05; my += (tmy - my) * .05;
+  cx.globalCompositeOperation = "source-over";
+  cx.fillStyle = "#06070b"; cx.fillRect(0, 0, Wd, Ht);
+  stars.forEach(s => { cx.fillStyle = `rgba(255,255,255,${s.a * (.6 + .4 * Math.sin(t / 900 + s.x * 40))})`; cx.fillRect(s.x * Wd + mx * 8, s.y * Ht + my * 8, s.r, s.r); });
+  const n = nodes();
+  cx.globalCompositeOperation = "lighter";
+  glow(n.a.x, n.a.y, n.a.r * 4, "rgba(245,165,36,A)");
+  glow(n.b.x, n.b.y, n.b.r * 4, "rgba(91,140,255,A)");
+  const spread = Math.min(Wd, Ht) * .012;
+  for (const p of parts) {
+    p.u += p.sp; if (p.u > 1) p.u -= 1;
+    const [x, y] = pathPt(p.u, n);
+    const w = Math.sin(p.u * 40 + t / 600 + p.off * 3) * spread * p.off;
+    const mix = p.u < .45 ? p.u / .45 : 1;
+    const r = Math.round(245 + (139 - 245) * mix * p.hue), g = Math.round(165 + (124 - 165) * mix), b = Math.round(36 + (246 - 36) * mix);
+    cx.fillStyle = `rgba(${r},${g},${b},${.55 + .45 * Math.sin(p.u * 30 + t / 400)})`;
+    cx.beginPath(); cx.arc(x + w, y + w * .6, p.sz, 0, Math.PI * 2); cx.fill();
+  }
+  cx.fillStyle = "#fff5e0"; cx.beginPath(); cx.arc(n.a.x, n.a.y, n.a.r * .32, 0, Math.PI * 2); cx.fill();
+  cx.fillStyle = "#e3eaff"; cx.beginPath(); cx.arc(n.b.x, n.b.y, n.b.r * .32, 0, Math.PI * 2); cx.fill();
+  const la = $("#lblPd"), lb = $("#lblEth");
+  la.style.left = n.a.x + "px"; la.style.top = (n.a.y + n.a.r + 18) + "px";
+  lb.style.left = n.b.x + "px"; lb.style.top = (n.b.y + Math.min(Wd, Ht) * .16 * .62 + 26) + "px";
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+if (animate) animate(".hero-copy > *", { opacity: [0, 1], y: [24, 0] }, { delay: stagger(.12, { start: .2 }), duration: .9, easing: [.2, .8, .2, 1] });
 </script>
 </body>
 </html>

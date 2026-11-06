@@ -48,11 +48,9 @@ Portaldot V3 (pallet-revive) holds a deposit for everything a contract stores. W
 | `Revive.DepositPerItem` | 0.15 POT |
 | `CodeHashLockupDepositPercent` | 30% |
 
-So deploying costs about **0.078 POT per byte of code**, and every new storage slot costs about **4 POT**. Our first version (14.8 KB, plus a test token and a separate road contract) needed **~1,425 POT** just to deploy. We had ~500.
+So deploying costs about **0.078 POT per byte of code**, and every new storage slot costs about **4 POT**. Lasso is designed around that:
 
-So Lasso was rebuilt for Portaldot:
-
-- **One 5.9 KB contract** on Portaldot, deployed for ~478 POT.
+- **One 5.9 KB contract** on Portaldot.
 - **Native POT** instead of a token contract. The Road In check is built in, so there's no second contract.
 - **A whole loan packed into 8 storage slots**, written in as few writes as possible.
 - **Lenders are paid as money arrives** (senior first), so there's no withdraw bookkeeping.

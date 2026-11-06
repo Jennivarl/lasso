@@ -5,7 +5,9 @@ libs = ["lib"]
 solc_version = "0.8.27"
 evm_version = "cancun"
 optimizer = true
-optimizer_runs = 200
+# Smallest code: Portaldot charges a storage deposit per byte of deployed code.
+optimizer_runs = 1
+via_ir = true
 
 [rpc_endpoints]
 portaldot = "https://test-evm-rpc-v3.portaldot.dev"

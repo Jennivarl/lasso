@@ -86,7 +86,7 @@ contract LassoVault {
     }
 
     /// @notice Carry out a Lasso ruling. Anyone can call it; the proof is what matters.
-    function execute(uint256 depositId, Commitments.Payout[] calldata payouts, bytes calldata proof)
+    function execute(uint256 depositId, Commitments.Payouts calldata payouts, bytes calldata proof)
         external
         nonReentrant
     {
@@ -94,10 +94,7 @@ contract LassoVault {
         if (d.depositor == address(0)) revert UnknownDeposit();
         if (d.settled) revert AlreadySettled();
 
-        uint256 total;
-        for (uint256 i; i < payouts.length; ++i) {
-            total += payouts[i].amount;
-        }
+        uint256 total = payouts.amount[0] + payouts.amount[1] + payouts.amount[2];
         if (total != d.amount) revert PayoutMismatch(d.amount, total);
 
         bytes32 rc =
@@ -107,8 +104,8 @@ contract LassoVault {
         d.settled = true;
         emit Settled(depositId, d.loanId, rc);
 
-        for (uint256 i; i < payouts.length; ++i) {
-            _pay(depositId, payouts[i].to, payouts[i].amount);
+        for (uint256 i; i < 3; ++i) {
+            _pay(depositId, payouts.to[i], payouts.amount[i]);
         }
     }
 

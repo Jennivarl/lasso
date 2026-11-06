@@ -1,445 +1,448 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {Lasso} from "../src/Lasso.sol";
 import {LassoVault} from "../src/LassoVault.sol";
 import {AttestedRoad} from "../src/roads/AttestedRoad.sol";
-import {MockUSD} from "../src/mocks/MockUSD.sol";
-import {IERC20} from "../src/interfaces/IERC20.sol";
 import {Commitments} from "../src/libraries/Commitments.sol";
 
 /// @dev Both chains are simulated on one test chain: the vault plays Ethereum, Lasso plays Portaldot.
+///      Loan money is native POT; collateral is native ETH on the vault side.
 contract LassoTest is Test {
     Lasso lasso;
     LassoVault vault;
     AttestedRoad road;
-    MockUSD usd;
 
     uint256 attesterKey = 0xA77E57;
     address borrower = makeAddr("borrower");
-    address s1 = makeAddr("senior1");
-    address s2 = makeAddr("senior2");
-    address j1 = makeAddr("junior1");
+    address senior = makeAddr("senior");
+    address junior = makeAddr("junior");
+    address a0 = makeAddr("arbiter0");
     address a1 = makeAddr("arbiter1");
     address a2 = makeAddr("arbiter2");
-    address a3 = makeAddr("arbiter3");
 
     uint64 constant GRACE = 1 days;
-    uint64 constant RESPOND = 2 days;
-    uint64 constant VOTE = 3 days;
-    uint256 constant BOND = 100e18;
+    uint64 constant WINDOW = 2 days;
+    uint128 constant BOND = 100 ether;
+    bytes32 constant ROAD_IN_TAG = keccak256("LASSO_ATTESTED_ROAD_IN_V1");
+    uint8 constant OPEN = 1;
+    uint8 constant ACTIVE = 2;
+    uint8 constant IN_CLAIM = 3;
+    uint8 constant DISPUTED = 4;
+    uint8 constant REPAID = 5;
+    uint8 constant DEFAULTED = 6;
+    uint8 constant CANCELLED = 7;
 
-    uint256 loanId;
+    uint256 id;
     uint256 depositId;
+    uint64 dueAt;
+    Commitments.Payouts lastPayouts;
 
     function setUp() public {
-        road = new AttestedRoad(vm.addr(attesterKey));
+        address attester = vm.addr(attesterKey);
+        road = new AttestedRoad(attester);
         vault = new LassoVault(road);
-        lasso = new Lasso(road, GRACE, RESPOND, VOTE, BOND);
-        usd = new MockUSD();
-
-        lasso.setArbiter(a1, true);
-        lasso.setArbiter(a2, true);
-        lasso.setArbiter(a3, true);
-        lasso.setQuorum(2);
-
-        address[4] memory people = [borrower, s1, s2, j1];
-        for (uint256 i; i < people.length; ++i) {
-            usd.mint(people[i], 50_000e18);
-            vm.prank(people[i]);
-            usd.approve(address(lasso), type(uint256).max);
-        }
-        vm.deal(borrower, 10 ether);
+        lasso = new Lasso(attester, [a0, a1, a2], GRACE, WINDOW, BOND);
+        vm.deal(borrower, 50_000 ether);
+        vm.deal(senior, 50_000 ether);
+        vm.deal(junior, 50_000 ether);
     }
 
     // ------------------------------------------------------------ helpers
 
-    function _terms() internal view returns (Lasso.Terms memory t) {
-        t.asset = IERC20(address(usd));
-        t.seniorTarget = 6_000e18;
-        t.juniorTarget = 4_000e18;
-        t.seniorRateBps = 500; // 5%
-        t.juniorRateBps = 1_500; // 15%
-        t.fundingDeadline = uint64(block.timestamp + 1 days);
-        t.dueDate = uint64(block.timestamp + 30 days);
-        t.vaultChainId = block.chainid;
-        t.vault = address(vault);
-        t.collateralAmount = 10 ether;
-        t.settlementPrice = 2_000e18; // 1 ETH = 2,000 mUSD at settlement
+    /// @dev Example loan: 6,000 POT senior at 5% + 4,000 POT junior at 15% = 10,900 owed,
+    ///      backed by 10 ETH, settled at 1 ETH = 2,000 POT.
+    function _request(uint128 price) internal returns (uint256 loanId) {
+        dueAt = uint64(block.timestamp + 30 days);
+        uint256 amounts = uint256(6_000 ether) << 128 | 4_000 ether;
+        uint256 backing = uint256(10 ether) << 128 | price;
+        uint256 schedule = uint256(block.chainid) << 192 | uint256(block.timestamp + 1 days) << 128 | uint256(dueAt)
+            << 64 | uint256(500) << 16 | 1_500;
+        vm.prank(borrower);
+        loanId = lasso.request(address(vault), amounts, backing, schedule);
     }
 
     function _sign(bytes32 digest) internal view returns (bytes memory) {
-        bytes32 h = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", digest));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterKey, h);
+        (uint8 v, bytes32 r, bytes32 s) =
+            vm.sign(attesterKey, keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", digest)));
         return abi.encodePacked(r, s, v);
     }
 
-    function _depositProof(uint256 id) internal view returns (bytes memory) {
-        return _sign(road.depositDigest(block.chainid, address(vault), id, vault.commitments(id)));
+    function _depositProof(uint256 loanId, uint256 dep) internal view returns (bytes memory) {
+        bytes32 digest = keccak256(
+            abi.encode(
+                ROAD_IN_TAG, block.chainid, address(lasso), block.chainid, address(vault), dep, vault.commitments(dep)
+            )
+        );
+        loanId; // the commitment already binds the loan
+        return _sign(digest);
     }
 
-    function _rulingProof(uint256 id) internal view returns (bytes memory) {
-        return _sign(road.rulingDigest(block.chainid, address(lasso), id, lasso.rulingOf(id)));
+    function _rulingProof(uint256 loanId) internal view returns (bytes memory) {
+        return _sign(road.rulingDigest(block.chainid, address(lasso), loanId, lasso.rulingOf(loanId)));
     }
 
-    /// @dev Request, lock, prove, fund, draw down. Leaves the loan Active.
-    function _activeLoan() internal {
-        vm.prank(borrower);
-        loanId = lasso.requestLoan(_terms());
-
+    function _lockAndProve(uint256 loanId) internal {
         vm.prank(borrower);
         depositId = vault.lock{value: 10 ether}(block.chainid, address(lasso), loanId);
-        lasso.confirmCollateral(loanId, depositId, 10 ether, _depositProof(depositId));
-
-        vm.prank(s1);
-        lasso.fund(loanId, Lasso.Tranche.Senior, 4_000e18);
-        vm.prank(s2);
-        lasso.fund(loanId, Lasso.Tranche.Senior, 2_000e18);
-        vm.prank(j1);
-        lasso.fund(loanId, Lasso.Tranche.Junior, 4_000e18);
-
-        vm.prank(borrower);
-        lasso.drawdown(loanId);
+        lasso.prove(loanId, uint64(depositId), _depositProof(loanId, depositId));
     }
 
-    function _executeRuling() internal {
-        vault.execute(depositId, lasso.payouts(loanId), _rulingProof(loanId));
+    function _active() internal {
+        id = _request(2_000 ether);
+        _lockAndProve(id);
+        vm.prank(senior);
+        lasso.fund{value: 6_000 ether}(id, true);
+        vm.prank(junior);
+        lasso.fund{value: 4_000 ether}(id, false);
     }
 
-    function _status() internal view returns (Lasso.Status) {
-        return lasso.loan(loanId).status;
+    function _status(uint256 loanId) internal view returns (uint8) {
+        bytes32 slot0 = vm.load(address(lasso), keccak256(abi.encode(loanId, uint256(1))));
+        return uint8(uint256(slot0) >> 160);
     }
 
-    function _fileClaimAfterDue() internal {
-        vm.warp(lasso.terms(loanId).dueDate + GRACE + 1);
-        vm.prank(s1);
-        lasso.fileClaim(loanId, keccak256("missed both payments"));
+    /// @dev Starts recording; call _capture() after the action that rules.
+    function _watch() internal {
+        vm.recordLogs();
+    }
+
+    function _capture() internal {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sig = keccak256("Ruled(uint256,bytes32,(address[3],uint256[3]))");
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] == sig) {
+                (, Commitments.Payouts memory p) = abi.decode(logs[i].data, (bytes32, Commitments.Payouts));
+                lastPayouts = p;
+            }
+        }
+    }
+
+    function _execute() internal {
+        vault.execute(depositId, lastPayouts, _rulingProof(id));
+    }
+
+    function _claim() internal {
+        vm.warp(dueAt + GRACE + 1);
+        vm.prank(senior);
+        lasso.claim{value: BOND}(id, keccak256("missed both payments"));
     }
 
     // ------------------------------------------------------------ stories
 
-    function test_RepaidInFull_CollateralGoesBack() public {
-        _activeLoan();
-        assertEq(usd.balanceOf(borrower), 60_000e18); // 50k + 10k borrowed
-
-        vm.prank(borrower);
-        lasso.repay(loanId, 10_900e18); // 6,300 senior + 4,600 junior
-        assertEq(uint8(_status()), uint8(Lasso.Status.Repaid));
-
-        _executeRuling();
-        assertEq(borrower.balance, 10 ether);
-
-        vm.prank(s1);
-        lasso.withdraw(loanId);
-        vm.prank(s2);
-        lasso.withdraw(loanId);
-        vm.prank(j1);
-        lasso.withdraw(loanId);
-        assertEq(usd.balanceOf(s1), 50_000e18 + 200e18); // 4,000 at 5%
-        assertEq(usd.balanceOf(s2), 50_000e18 + 100e18); // 2,000 at 5%
-        assertEq(usd.balanceOf(j1), 50_000e18 + 600e18); // 4,000 at 15%
+    function test_FundingStartsLoan_PrincipalToBorrower() public {
+        _active();
+        assertEq(_status(id), ACTIVE);
+        assertEq(borrower.balance, 59_990 ether); // 50,000 - 10 ETH locked + 10,000 principal
     }
 
-    function test_DefaultUnanswered_SeniorFirstThenJuniorThenBorrower() public {
-        _activeLoan();
+    function test_RepaidInFull_LendersPaidAsMoneyArrives_CollateralBack() public {
+        _active();
+        _watch();
         vm.prank(borrower);
-        lasso.repay(loanId, 3_000e18); // partial
+        lasso.repay{value: 10_900 ether}(id);
+        _capture();
+        assertEq(_status(id), REPAID);
+        assertEq(senior.balance, 50_000 ether + 300 ether); // 6,000 at 5%
+        assertEq(junior.balance, 50_000 ether + 600 ether); // 4,000 at 15%
 
-        _fileClaimAfterDue();
-        vm.warp(block.timestamp + RESPOND + 1);
-        lasso.finalizeUnanswered(loanId);
-        assertEq(uint8(_status()), uint8(Lasso.Status.Defaulted));
-
-        // Senior is owed 6,300 and got 3,000 -> short 3,300 = 1.65 ETH.
-        // Junior is owed 4,600 and got 0     -> short 4,600 = 2.30 ETH.
-        // Borrower gets the rest: 6.05 ETH.
-        Commitments.Payout[] memory p = lasso.payouts(loanId);
-        assertEq(p.length, 4);
-        assertEq(p[0].to, s1);
-        assertEq(p[0].amount, 1.1 ether);
-        assertEq(p[1].to, s2);
-        assertEq(p[1].amount, 0.55 ether);
-        assertEq(p[2].to, j1);
-        assertEq(p[2].amount, 2.3 ether);
-        assertEq(p[3].to, borrower);
-        assertEq(p[3].amount, 6.05 ether);
-
-        _executeRuling();
-        assertEq(s1.balance, 1.1 ether);
-        assertEq(s2.balance, 0.55 ether);
-        assertEq(j1.balance, 2.3 ether);
-        assertEq(borrower.balance, 6.05 ether);
-
-        // The 3,000 repaid on Portaldot goes to senior lenders only.
-        assertEq(lasso.claimable(loanId, s1), 2_000e18);
-        assertEq(lasso.claimable(loanId, s2), 1_000e18);
-        assertEq(lasso.claimable(loanId, j1), 0);
-        // Claimant got their bond back.
-        assertEq(usd.balanceOf(s1), 50_000e18 - 4_000e18);
+        assertEq(lastPayouts.to[2], borrower);
+        assertEq(lastPayouts.amount[2], 10 ether);
+        _execute();
+        assertEq(borrower.balance, 50_000 ether - 900 ether - 10 ether + 10 ether + 0); // net interest paid
     }
 
-    function test_CollateralTooSmall_SeniorProtectedJuniorTakesLoss() public {
-        // Settlement price crashed: 1 ETH = 500 mUSD, so 10 ETH covers only 5,000 of 10,900 owed.
-        Lasso.Terms memory t = _terms();
-        t.settlementPrice = 500e18;
+    function test_PartialRepayment_GoesToSeniorFirst() public {
+        _active();
         vm.prank(borrower);
-        loanId = lasso.requestLoan(t);
+        lasso.repay{value: 6_000 ether}(id);
+        assertEq(senior.balance, 50_000 ether); // got 6,000 back of 6,300 owed
+        assertEq(junior.balance, 46_000 ether); // nothing yet
         vm.prank(borrower);
-        depositId = vault.lock{value: 10 ether}(block.chainid, address(lasso), loanId);
-        lasso.confirmCollateral(loanId, depositId, 10 ether, _depositProof(depositId));
-        vm.prank(s1);
-        lasso.fund(loanId, Lasso.Tranche.Senior, 6_000e18);
-        vm.prank(j1);
-        lasso.fund(loanId, Lasso.Tranche.Junior, 4_000e18);
-        vm.prank(borrower);
-        lasso.drawdown(loanId);
+        lasso.repay{value: 1_000 ether}(id);
+        assertEq(senior.balance, 50_300 ether); // senior now whole
+        assertEq(junior.balance, 46_700 ether); // junior gets the rest
+    }
 
-        vm.warp(t.dueDate + GRACE + 1);
-        vm.prank(s1);
-        lasso.fileClaim(loanId, keccak256("nothing paid"));
-        vm.warp(block.timestamp + RESPOND + 1);
-        lasso.finalizeUnanswered(loanId);
+    function test_DefaultUnanswered_SeniorThenJuniorThenBorrower() public {
+        _active();
+        vm.prank(borrower);
+        lasso.repay{value: 3_000 ether}(id);
+        _claim();
+        vm.warp(block.timestamp + WINDOW + 1);
+        _watch();
+        lasso.finalize(id);
+        _capture();
+        assertEq(_status(id), DEFAULTED);
 
-        // Senior needs 6,300 / 500 = 12.6 ETH but only 10 exist: senior takes all of it.
-        Commitments.Payout[] memory p = lasso.payouts(loanId);
-        assertEq(p.length, 1);
-        assertEq(p[0].to, s1);
-        assertEq(p[0].amount, 10 ether);
+        // Senior owed 6,300, got 3,000 -> short 3,300 = 1.65 ETH. Junior short 4,600 = 2.30 ETH.
+        assertEq(lastPayouts.to[0], senior);
+        assertEq(lastPayouts.amount[0], 1.65 ether);
+        assertEq(lastPayouts.to[1], junior);
+        assertEq(lastPayouts.amount[1], 2.3 ether);
+        assertEq(lastPayouts.to[2], borrower);
+        assertEq(lastPayouts.amount[2], 6.05 ether);
+
+        uint256 sb = senior.balance;
+        _execute();
+        assertEq(senior.balance - sb, 1.65 ether);
+        assertEq(senior.balance, 50_000 ether - 6_000 ether + 3_000 ether + 1.65 ether); // bond returned too
+    }
+
+    function test_CollateralTooSmall_SeniorTakesAll() public {
+        id = _request(500 ether); // 10 ETH covers only 5,000
+        _lockAndProve(id);
+        vm.prank(senior);
+        lasso.fund{value: 6_000 ether}(id, true);
+        vm.prank(junior);
+        lasso.fund{value: 4_000 ether}(id, false);
+        _claim();
+        vm.warp(block.timestamp + WINDOW + 1);
+        _watch();
+        lasso.finalize(id);
+        _capture();
+        assertEq(lastPayouts.amount[0], 10 ether);
+        assertEq(lastPayouts.amount[1], 0);
+        assertEq(lastPayouts.amount[2], 0);
+        assertEq(lastPayouts.to[1], address(0));
+        _execute();
     }
 
     function test_Dispute_PanelSaysPaidOffChain() public {
-        _activeLoan();
-        _fileClaimAfterDue();
-
+        _active();
+        _claim();
         vm.prank(borrower);
-        lasso.answerClaim(loanId, keccak256("bank transfer receipt #8812"));
-        assertEq(uint8(_status()), uint8(Lasso.Status.Disputed));
-
-        vm.prank(a1);
-        lasso.vote(loanId, false);
+        lasso.answer{value: BOND}(id, keccak256("bank receipt #8812"));
+        assertEq(_status(id), DISPUTED);
+        vm.prank(a0);
+        lasso.vote(id, false);
+        _watch();
         vm.prank(a2);
-        lasso.vote(loanId, false);
-        assertEq(uint8(_status()), uint8(Lasso.Status.Repaid));
-
-        _executeRuling();
-        assertEq(borrower.balance, 10 ether);
-        // Borrower: 60,000 after drawdown, -100 bond, +200 both bonds.
-        assertEq(usd.balanceOf(borrower), 60_100e18);
+        lasso.vote(id, false);
+        _capture();
+        assertEq(_status(id), REPAID);
+        assertEq(borrower.balance, 59_990 ether + BOND); // paid one bond, got two
+        _execute();
+        assertEq(borrower.balance, 60_000 ether + BOND); // + the 10 ETH collateral back
     }
 
     function test_Dispute_PanelConfirmsDefault() public {
-        _activeLoan();
-        _fileClaimAfterDue();
+        _active();
+        _claim();
         vm.prank(borrower);
-        lasso.answerClaim(loanId, keccak256("fake receipt"));
-
+        lasso.answer{value: BOND}(id, keccak256("fake receipt"));
+        vm.prank(a0);
+        lasso.vote(id, true);
         vm.prank(a1);
-        lasso.vote(loanId, true);
-        vm.prank(a3);
-        lasso.vote(loanId, true);
-        assertEq(uint8(_status()), uint8(Lasso.Status.Defaulted));
-        // Claimant: 46,000 after funding, -100 bond, +200 both bonds.
-        assertEq(usd.balanceOf(s1), 46_100e18);
+        lasso.vote(id, true);
+        assertEq(_status(id), DEFAULTED);
+        assertEq(senior.balance, 44_000 ether + BOND); // paid one bond, got two
     }
 
-    function test_Dispute_NoQuorum_BurdenOnBorrower() public {
-        _activeLoan();
-        _fileClaimAfterDue();
+    function test_Dispute_NoQuorum_DefaultStands() public {
+        _active();
+        _claim();
         vm.prank(borrower);
-        lasso.answerClaim(loanId, keccak256("receipt"));
+        lasso.answer{value: BOND}(id, 0);
+        vm.prank(a0);
+        lasso.vote(id, false);
         vm.prank(a1);
-        lasso.vote(loanId, false);
-        vm.prank(a2);
-        lasso.vote(loanId, true);
-
-        vm.warp(block.timestamp + VOTE + 1);
-        lasso.resolveExpired(loanId);
-        assertEq(uint8(_status()), uint8(Lasso.Status.Defaulted));
+        lasso.vote(id, true);
+        vm.warp(block.timestamp + WINDOW + 1);
+        lasso.finalize(id);
+        assertEq(_status(id), DEFAULTED);
+        assertEq(senior.balance, 44_000 ether + BOND);
     }
 
-    function test_RepayDuringClaim_EndsItAndReturnsBonds() public {
-        _activeLoan();
-        _fileClaimAfterDue();
+    function test_RepayDuringClaim_ClosesItAndReturnsBond() public {
+        _active();
+        _claim();
         vm.prank(borrower);
-        lasso.repay(loanId, 10_900e18);
-        assertEq(uint8(_status()), uint8(Lasso.Status.Repaid));
-        assertEq(usd.balanceOf(s1), 46_000e18); // bond back
+        lasso.repay{value: 10_900 ether}(id);
+        assertEq(_status(id), REPAID);
+        assertEq(senior.balance, 50_300 ether); // repaid with interest, bond back
     }
 
-    function test_Cancel_RefundsLendersAndReleasesCollateral() public {
-        vm.prank(borrower);
-        loanId = lasso.requestLoan(_terms());
-        vm.prank(borrower);
-        depositId = vault.lock{value: 10 ether}(block.chainid, address(lasso), loanId);
-        lasso.confirmCollateral(loanId, depositId, 10 ether, _depositProof(depositId));
-        vm.prank(s1);
-        lasso.fund(loanId, Lasso.Tranche.Senior, 1_000e18);
-
+    function test_Cancel_RefundsAndReleases() public {
+        id = _request(2_000 ether);
+        _lockAndProve(id);
+        vm.prank(senior);
+        lasso.fund{value: 6_000 ether}(id, true);
         vm.warp(block.timestamp + 1 days + 1);
-        lasso.cancel(loanId); // anyone, after the funding deadline
-        _executeRuling();
-        assertEq(borrower.balance, 10 ether);
-
-        vm.prank(s1);
-        lasso.withdraw(loanId);
-        assertEq(usd.balanceOf(s1), 50_000e18);
+        _watch();
+        lasso.cancel(id);
+        _capture();
+        assertEq(_status(id), CANCELLED);
+        assertEq(senior.balance, 50_000 ether);
+        _execute();
+        assertEq(borrower.balance, 50_000 ether);
     }
 
     // ------------------------------------------------------------ attacks and mistakes
 
     function test_Vault_RejectsTamperedPayouts() public {
-        _activeLoan();
-        _fileClaimAfterDue();
-        vm.warp(block.timestamp + RESPOND + 1);
-        lasso.finalizeUnanswered(loanId);
-
-        Commitments.Payout[] memory p = lasso.payouts(loanId);
-        bytes memory proof = _rulingProof(loanId);
-        // Swap who gets the borrower's surplus.
-        p[3].to = makeAddr("thief");
+        _active();
+        _claim();
+        vm.warp(block.timestamp + WINDOW + 1);
+        _watch();
+        lasso.finalize(id);
+        _capture();
+        Commitments.Payouts memory p = lastPayouts;
+        p.to[2] = makeAddr("thief");
+        bytes memory proof = _rulingProof(id);
         vm.expectRevert(LassoVault.RulingNotProven.selector);
         vault.execute(depositId, p, proof);
     }
 
-    function test_Vault_RejectsWrongTotal() public {
-        _activeLoan();
+    function test_Vault_RejectsWrongTotal_AndPaysOnce() public {
+        _active();
+        _watch();
         vm.prank(borrower);
-        lasso.repay(loanId, 10_900e18);
-        Commitments.Payout[] memory p = lasso.payouts(loanId);
-        p[0].amount = 9 ether;
-        bytes memory proof = _rulingProof(loanId);
+        lasso.repay{value: 10_900 ether}(id);
+        _capture();
+        Commitments.Payouts memory p = lastPayouts;
+        p.amount[2] = 9 ether;
+        bytes memory proof = _rulingProof(id);
         vm.expectRevert(abi.encodeWithSelector(LassoVault.PayoutMismatch.selector, 10 ether, 9 ether));
         vault.execute(depositId, p, proof);
-    }
 
-    function test_Vault_PaysOnlyOnce() public {
-        _activeLoan();
-        vm.prank(borrower);
-        lasso.repay(loanId, 10_900e18);
-        _executeRuling();
-        Commitments.Payout[] memory p = lasso.payouts(loanId);
-        bytes memory proof = _rulingProof(loanId);
+        _execute();
+        p = lastPayouts;
         vm.expectRevert(LassoVault.AlreadySettled.selector);
         vault.execute(depositId, p, proof);
     }
 
-    function test_Vault_RejectsProofFromWrongSigner() public {
-        _activeLoan();
+    function test_Lasso_RejectsProofFromWrongKey() public {
+        id = _request(2_000 ether);
         vm.prank(borrower);
-        lasso.repay(loanId, 10_900e18);
-        bytes32 digest = road.rulingDigest(block.chainid, address(lasso), loanId, lasso.rulingOf(loanId));
-        bytes32 h = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", digest));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xBAD, h);
-        Commitments.Payout[] memory p = lasso.payouts(loanId);
-        vm.expectRevert(LassoVault.RulingNotProven.selector);
-        vault.execute(depositId, p, abi.encodePacked(r, s, v));
+        depositId = vault.lock{value: 10 ether}(block.chainid, address(lasso), id);
+        bytes32 digest = keccak256(
+            abi.encode(
+                ROAD_IN_TAG,
+                block.chainid,
+                address(lasso),
+                block.chainid,
+                address(vault),
+                depositId,
+                vault.commitments(depositId)
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 s) =
+            vm.sign(0xBAD, keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", digest)));
+        vm.expectRevert();
+        lasso.prove(id, uint64(depositId), abi.encodePacked(r, s, v));
     }
 
     function test_Lasso_RejectsCollateralLockedForAnotherLoan() public {
+        id = _request(2_000 ether);
         vm.prank(borrower);
-        loanId = lasso.requestLoan(_terms());
-        vm.prank(borrower);
-        depositId = vault.lock{value: 10 ether}(block.chainid, address(lasso), loanId + 7);
-        bytes memory proof = _depositProof(depositId);
-        vm.expectRevert(Lasso.CollateralNotProven.selector);
-        lasso.confirmCollateral(loanId, depositId, 10 ether, proof);
+        depositId = vault.lock{value: 10 ether}(block.chainid, address(lasso), id + 7);
+        bytes memory proof = _depositProof(id, depositId);
+        vm.expectRevert();
+        lasso.prove(id, uint64(depositId), proof);
     }
 
-    function test_Lasso_NoFundingBeforeCollateral() public {
+    function test_Lasso_RejectsWrongCollateralAmount() public {
+        id = _request(2_000 ether);
         vm.prank(borrower);
-        loanId = lasso.requestLoan(_terms());
-        vm.prank(s1);
-        vm.expectRevert(Lasso.CollateralNotConfirmed.selector);
-        lasso.fund(loanId, Lasso.Tranche.Senior, 1_000e18);
+        depositId = vault.lock{value: 9 ether}(block.chainid, address(lasso), id);
+        bytes memory proof = _depositProof(id, depositId);
+        vm.expectRevert();
+        lasso.prove(id, uint64(depositId), proof);
     }
 
-    function test_Lasso_NoClaimBeforeDueDatePlusGrace() public {
-        _activeLoan();
-        vm.warp(lasso.terms(loanId).dueDate + GRACE);
-        vm.prank(s1);
-        vm.expectRevert(Lasso.TooEarly.selector);
-        lasso.fileClaim(loanId, bytes32(0));
+    function test_Lasso_NoFundingBeforeProof_NoWrongAmount_NoSelfFunding() public {
+        id = _request(2_000 ether);
+        vm.prank(senior);
+        vm.expectRevert();
+        lasso.fund{value: 6_000 ether}(id, true);
+
+        _lockAndProve(id);
+        vm.prank(senior);
+        vm.expectRevert();
+        lasso.fund{value: 5_000 ether}(id, true);
+
+        vm.prank(borrower);
+        vm.expectRevert();
+        lasso.fund{value: 6_000 ether}(id, true);
     }
 
-    function test_Lasso_OnlyLendersCanClaim() public {
-        _activeLoan();
-        vm.warp(lasso.terms(loanId).dueDate + GRACE + 1);
+    function test_Lasso_ClaimRules() public {
+        _active();
+        vm.warp(dueAt + GRACE);
+        vm.prank(senior);
+        vm.expectRevert(); // too early
+        lasso.claim{value: BOND}(id, 0);
+
+        vm.warp(dueAt + GRACE + 1);
         vm.prank(makeAddr("stranger"));
-        vm.expectRevert(Lasso.NotLender.selector);
-        lasso.fileClaim(loanId, bytes32(0));
+        vm.expectRevert(); // not a lender
+        lasso.claim{value: BOND}(id, 0);
+
+        vm.prank(senior);
+        vm.expectRevert(); // no bond
+        lasso.claim(id, 0);
     }
 
-    function test_Lasso_OnlyArbitersVote_AndNoConflicts() public {
-        _activeLoan();
-        _fileClaimAfterDue();
+    function test_Lasso_VoteRules() public {
+        _active();
+        _claim();
         vm.prank(borrower);
-        lasso.answerClaim(loanId, bytes32(0));
+        lasso.answer{value: BOND}(id, 0);
 
         vm.prank(makeAddr("stranger"));
-        vm.expectRevert(Lasso.NotArbiter.selector);
-        lasso.vote(loanId, false);
+        vm.expectRevert();
+        lasso.vote(id, false);
 
-        lasso.setArbiter(j1, true); // a lender on this loan
-        vm.prank(j1);
-        vm.expectRevert(Lasso.ConflictOfInterest.selector);
-        lasso.vote(loanId, true);
+        vm.prank(a0);
+        lasso.vote(id, true);
+        vm.prank(a0);
+        vm.expectRevert(); // twice
+        lasso.vote(id, true);
 
+        vm.warp(block.timestamp + WINDOW + 1);
         vm.prank(a1);
-        lasso.vote(loanId, true);
-        vm.prank(a1);
-        vm.expectRevert(Lasso.AlreadyVoted.selector);
-        lasso.vote(loanId, true);
+        vm.expectRevert(); // too late
+        lasso.vote(id, true);
     }
 
     function test_Lasso_LateAnswerRejected() public {
-        _activeLoan();
-        _fileClaimAfterDue();
-        vm.warp(block.timestamp + RESPOND + 1);
+        _active();
+        _claim();
+        vm.warp(block.timestamp + WINDOW + 1);
         vm.prank(borrower);
-        vm.expectRevert(Lasso.TooLate.selector);
-        lasso.answerClaim(loanId, bytes32(0));
+        vm.expectRevert();
+        lasso.answer{value: BOND}(id, 0);
     }
 
-    /// @dev Whatever the numbers, a default ruling pays out exactly the locked collateral.
-    function testFuzz_DefaultPayoutsAlwaysSumToCollateral(uint96 repaid, uint96 price, uint96 sA, uint96 sB) public {
-        uint256 senior1 = bound(sA, 1e18, 5_000e18);
-        uint256 senior2 = bound(sB, 1e18, 5_000e18);
-        Lasso.Terms memory t = _terms();
-        t.seniorTarget = senior1 + senior2;
-        t.settlementPrice = bound(price, 1e15, 1e24);
+    function test_Lasso_CannotOverpay() public {
+        _active();
+        vm.prank(borrower);
+        vm.expectRevert();
+        lasso.repay{value: 10_901 ether}(id);
+    }
 
-        vm.prank(borrower);
-        loanId = lasso.requestLoan(t);
-        vm.prank(borrower);
-        depositId = vault.lock{value: 10 ether}(block.chainid, address(lasso), loanId);
-        lasso.confirmCollateral(loanId, depositId, 10 ether, _depositProof(depositId));
-        vm.prank(s1);
-        lasso.fund(loanId, Lasso.Tranche.Senior, senior1);
-        vm.prank(s2);
-        lasso.fund(loanId, Lasso.Tranche.Senior, senior2);
-        vm.prank(j1);
-        lasso.fund(loanId, Lasso.Tranche.Junior, t.juniorTarget);
-        vm.prank(borrower);
-        lasso.drawdown(loanId);
-
-        uint256 r = bound(repaid, 0, lasso.totalOwed(loanId) - 1);
+    /// @dev Whatever the numbers, a default ruling pays out exactly the locked collateral,
+    ///      and the vault accepts it.
+    function testFuzz_DefaultPayoutsSumToCollateral(uint96 repaid, uint96 price) public {
+        id = _request(uint128(bound(price, 1e15, 1e24)));
+        _lockAndProve(id);
+        vm.prank(senior);
+        lasso.fund{value: 6_000 ether}(id, true);
+        vm.prank(junior);
+        lasso.fund{value: 4_000 ether}(id, false);
+        uint256 r = bound(repaid, 0, 10_900 ether - 1);
         if (r != 0) {
             vm.prank(borrower);
-            lasso.repay(loanId, r);
+            lasso.repay{value: r}(id);
         }
-        vm.warp(t.dueDate + GRACE + 1);
-        vm.prank(s1);
-        lasso.fileClaim(loanId, bytes32(0));
-        vm.warp(block.timestamp + RESPOND + 1);
-        lasso.finalizeUnanswered(loanId);
-
-        Commitments.Payout[] memory p = lasso.payouts(loanId);
-        uint256 sum;
-        for (uint256 i; i < p.length; ++i) {
-            sum += p[i].amount;
-        }
-        assertEq(sum, 10 ether);
-        _executeRuling(); // and the vault accepts it
+        _claim();
+        vm.warp(block.timestamp + WINDOW + 1);
+        _watch();
+        lasso.finalize(id);
+        _capture();
+        assertEq(lastPayouts.amount[0] + lastPayouts.amount[1] + lastPayouts.amount[2], 10 ether);
+        _execute();
     }
 }

@@ -6,10 +6,11 @@ library Commitments {
     bytes32 internal constant DEPOSIT_TAG = keccak256("LASSO_DEPOSIT_V1");
     bytes32 internal constant RULING_TAG = keccak256("LASSO_RULING_V1");
 
-    /// @notice One line of a ruling: who receives how much collateral (in wei).
-    struct Payout {
-        address to;
-        uint256 amount;
+    /// @notice A ruling: who receives how much collateral (in wei). Always three lines, in payout
+    ///         order: senior lender, junior lender, borrower. Unused lines are (0, 0).
+    struct Payouts {
+        address[3] to;
+        uint256[3] amount;
     }
 
     /// @notice What the vault stores when collateral is locked.
@@ -36,7 +37,7 @@ library Commitments {
         uint256 vaultChainId,
         address vault,
         uint256 depositId,
-        Payout[] memory payouts
+        Payouts memory payouts
     ) internal pure returns (bytes32) {
         return keccak256(abi.encode(RULING_TAG, lassoChainId, lasso, loanId, vaultChainId, vault, depositId, payouts));
     }

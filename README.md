@@ -58,6 +58,19 @@ So deploying costs about **0.078 POT per byte of code**, and every new storage s
 - **Rulings are a fixed three-line payout** (senior, junior, borrower), so encoding is cheap on both chains.
 - **State is read from events**, not view functions.
 
+### What we traded to fit
+
+Shrinking Lasso to fit Portaldot's deposits within our testnet budget meant giving some things up. None of these change how the money moves; they are on the list for the next version:
+
+- **One senior and one junior lender per loan.** The first version allowed many lenders in each tranche.
+- **Arbiters are fixed at deploy**, with no way to change the panel later.
+- **Arbiters aren't checked against the loan's parties.** The first version stopped the borrower and lenders from voting on their own loan; the compact one relies on choosing independent arbiters at deploy.
+- **A claimant that refuses its bond refund can block a full repayment during a claim.** The borrower can still answer the claim and win through the arbiters. The fix is to hold refunds for withdrawal instead of sending them.
+- **Short, generic error messages**, so the app can't always say why a transaction was refused.
+- **The Road In check is built into Lasso**, so moving that side to a ZK proof means a redeploy. The vault's Road Out can be swapped in place.
+
+What stays the same: nobody can take the collateral without a valid ruling, a ruling can't be altered, nothing is paid twice, and the payout order is always senior, then junior, then the borrower. The 21 tests cover these.
+
 ## A real loan, end to end, on live chains
 
 Loan #0: **0.05 POT senior at 5% + 0.03 POT junior at 15%**, backed by **0.001 ETH** locked on Sepolia, settled at 100 POT per ETH. The borrower never repaid. Every step below is a real transaction.

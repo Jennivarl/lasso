@@ -2,6 +2,8 @@
 
 **Borrow on Portaldot against ETH that never leaves Ethereum. If you don't pay, Portaldot throws a lasso across chains and pulls the collateral home to your lenders, senior lender first.**
 
+**App:** https://jennivarl.github.io/lasso/ shows every loan read live from Portaldot and Sepolia, and lets you connect a wallet to act on one.
+
 Portaldot's own site names **DaaS (Default-as-a-Service)**, on-chain default handling, as its flagship protocol: early warning, dispute resolution, asset seizure, liquidation, loss allocation, cross-chain settlement. Lasso is a working version of that idea, and it reaches across chains.
 
 ## The problem

@@ -58,7 +58,24 @@ So Lasso was rebuilt for Portaldot:
 - **Rulings are a fixed three-line payout** (senior, junior, borrower), so encoding is cheap on both chains.
 - **State is read from events**, not view functions.
 
-**Honest limit:** after deploying, ~21 POT was left. That isn't enough for the ~40 POT of storage deposits a full live loan writes. So the full story below runs against a **local copy (fork) of the live Portaldot V3 testnet with the real deployed Lasso contract in it**, plus a fork of Sepolia with the real vault. It's the same bytecode at the same addresses, but a copy charges no deposits.
+## A real loan, end to end, on live chains
+
+Loan #0: **0.05 POT senior at 5% + 0.03 POT junior at 15%**, backed by **0.001 ETH** locked on Sepolia, settled at 100 POT per ETH. The borrower never repaid. Every step below is a real transaction.
+
+| # | Step | Chain | Transaction |
+|---|---|---|---|
+| 1 | Borrower requests the loan | Portaldot | `0x30e058109981677f6ccde457d29b29b12e4be6d5a1320910a920676920092a1e` |
+| 2 | Borrower locks 0.001 ETH in LassoVault (deposit #0) | Sepolia | `0xb2af7f898b305d4415f990cbe9c75a8374ed0d2f827397e38be4a35650328f67` |
+| 3 | Road In: Lasso accepts proof of the lock | Portaldot | `0x3f40ce31c8fcb073946a8ce127389ec44be2b52f5e311ffd20b0be25c5b6e259` |
+| 4 | Senior lender funds | Portaldot | `0x827a846b7ce727e71d2cd3bf3d721a94cd49fe5a0b152f9c9cd2671002653db5` |
+| 5 | Junior lender funds; the loan starts and pays the borrower | Portaldot | `0xdb26ef5c66fb71e530d258b43b428401570a06b5d028fbabfe5062af969c9092` |
+| 6 | After due date + grace, senior files a default claim with a bond | Portaldot | `0x81a8ebc95db8101a75312382ccc7f861d51ede2e589413310a606dc461d159e6` |
+| 7 | No answer in 3 minutes: default ruled (ruling `0x04c44567…77481aa2`) | Portaldot | `0xba8b7cf7c8fffaae65ba78ded568151f357dbeadddec7ad2be461fcc16523bb1` |
+| 8 | Road Out: the vault pays the ruling, **senior 0.000525 ETH, junior 0.000345 ETH, borrower 0.00013 ETH** | Sepolia | `0x29430d67664625ef4d23f38108fab196d1912e39da230e179fabd2f0409d5a6e` |
+
+Owed: senior 0.0525 POT = 0.000525 ETH, junior 0.0345 POT = 0.000345 ETH, and the remaining 0.00013 ETH went back to the borrower.
+
+To keep deposits within budget, the live run skips a partial repayment, since every new value stored costs ~4 POT. The demo below shows the full story, partial repayment included, against local copies (forks) of both live chains, with the same deployed contracts at the same addresses.
 
 ## Status
 
@@ -66,6 +83,7 @@ So Lasso was rebuilt for Portaldot:
 |---|---|
 | Lasso: loans, collateral proof, two-tranche repayment, claims, bonds, answers, arbiter votes, rulings | ✅ deployed on Portaldot V3 testnet |
 | LassoVault: lock ETH, carry out a ruling exactly once | ✅ deployed on Sepolia |
+| A real loan, request to payout, across both chains | ✅ done live (table above) |
 | Full cross-chain story, scripted | ✅ runs on forks of both live chains |
 | **Road In and Road Out as ZK proofs** | 🔜 next |
 

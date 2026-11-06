@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lasso · cross-chain default handling on Portaldot</title>
+<meta name="description" content="Borrow on Portaldot against ETH that never leaves Ethereum. If you don't pay, the ruling pulls the collateral home to your lenders, senior first.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f1f0ec; --win: #f9f8f5; --band: #f0efea; --line: #e3e1db;
+    --ink: #2e2e2c; --muted: #8f8d86; --faint: #bdbbb4;
+    --green: #2f8f57; --red: #c44a4a; --teal: #23848e; --amber: #b8771a; --blue: #3c6ec8;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    --sans: "Inter", system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  body { background: radial-gradient(ellipse at 50% 30%, #f6f5f2 0%, var(--bg) 60%, #e6e4de 100%) fixed; }
+  a { color: inherit; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+
+  header { padding: 72px 0 40px; text-align: center; }
+  .eyebrow { font-family: var(--mono); font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: clamp(64px, 12vw, 120px); font-weight: 700; letter-spacing: -0.04em; margin: 12px 0 8px; line-height: 1; }
+  .tag { font-size: clamp(18px, 2.6vw, 24px); color: var(--muted); max-width: 720px; margin: 0 auto; line-height: 1.45; }
+  .tag b { color: var(--ink); font-weight: 600; }
+  .cta { margin-top: 28px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn { font: 600 15px var(--sans); padding: 12px 20px; border-radius: 999px; text-decoration: none; border: 1px solid var(--line); background: var(--win); }
+  .btn.dark { background: var(--ink); color: #f6f5f1; border-color: var(--ink); }
+
+  section { padding: 40px 0; }
+  h2 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -0.02em; margin: 0 0 8px; }
+  .sub { color: var(--muted); margin: 0 0 24px; line-height: 1.5; }
+
+  .parts { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: center; }
+  .card { background: var(--win); border: 1px solid var(--line); border-radius: 18px; padding: 28px; box-shadow: 0 14px 40px rgba(0,0,0,.05); }
+  .card .chain { font: 600 13px var(--mono); letter-spacing: .1em; }
+  .card h3 { font-size: 32px; margin: 10px 0 10px; letter-spacing: -0.02em; }
+  .card p { margin: 0; color: var(--muted); line-height: 1.55; }
+  .arrow { font: 600 13px var(--mono); color: var(--muted); text-align: center; line-height: 1.8; }
+  .arrow span { display: block; font-size: 28px; color: var(--ink); }
+
+  .term { background: var(--win); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 24px 60px rgba(0,0,0,.08); overflow: hidden; }
+  .bar { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 18px; border-bottom: 1px solid var(--line); }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .bar .title { margin-left: 12px; font: 13px var(--mono); color: var(--muted); }
+  .rows { padding: 18px 0; font: 14px/1.5 var(--mono); }
+  .row { display: grid; grid-template-columns: 56px 1fr auto; gap: 12px; padding: 7px 22px; align-items: baseline; opacity: 0; transform: translateY(4px); transition: opacity .35s, transform .35s; }
+  .row.on { opacity: 1; transform: none; }
+  .row .lab { color: var(--faint); }
+  .row .what b { font-weight: 600; }
+  .row .what .muted { color: var(--muted); }
+  .row .st { color: var(--muted); white-space: nowrap; }
+  .row .st.ok { color: var(--green); }
+  .row .st.bad { color: var(--red); }
+  .row a.hash { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--faint); }
+  .row a.hash:hover { color: var(--ink); }
+  .prompt { background: var(--band); padding: 14px 22px; font: 14px var(--mono); color: var(--ink); border-top: 1px solid var(--line); }
+  .prompt .c { display: inline-block; width: 9px; height: 17px; background: var(--ink); vertical-align: -3px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .status { padding: 10px 22px 14px; font: 12.5px var(--mono); color: var(--muted); display: flex; gap: 18px; flex-wrap: wrap; }
+  .status b { font-weight: 600; }
+
+  .payout { display: flex; height: 64px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--win); }
+  .payout div { display: flex; align-items: center; justify-content: center; font: 600 13px var(--mono); color: #fff; transition: flex-grow 1s ease; flex-grow: 0; min-width: 0; white-space: nowrap; overflow: hidden; }
+  .legend { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+  .legend .card { padding: 18px; }
+  .legend .k { font: 12px var(--mono); color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  .legend .v { font-size: 26px; font-weight: 700; margin-top: 6px; letter-spacing: -0.02em; }
+  .legend .n { color: var(--muted); font-size: 14px; margin-top: 4px; line-height: 1.45; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat .big { font-size: 44px; font-weight: 700; letter-spacing: -0.03em; }
+  .stat .small { color: var(--muted); margin-top: 4px; line-height: 1.45; }
+
+  table { width: 100%; border-collapse: collapse; font: 13.5px var(--mono); background: var(--win); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 400; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+  td.addr { word-break: break-all; }
+  .note { font-size: 14px; color: var(--muted); line-height: 1.6; margin-top: 14px; }
+
+  footer { padding: 40px 0 64px; color: var(--muted); font: 13px var(--mono); text-align: center; }
+
+  @media (max-width: 760px) {
+    .parts { grid-template-columns: 1fr; }
+    .arrow span { transform: rotate(90deg); }
+    .legend, .stats { grid-template-columns: 1fr; }
+    .row { grid-template-columns: 40px 1fr; }
+    .row .st { grid-column: 2; }
+    th:nth-child(2), td:nth-child(2) { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Portaldot Hacker House 2026 · DaaS</div>
+    <h1>Lasso.</h1>
+    <p class="tag">Borrow on <b>Portaldot</b> against ETH that never leaves <b>Ethereum</b>. If you don’t pay, the ruling pulls the collateral home to your lenders, <b>senior first</b>.</p>
+    <div class="cta">
+      <a class="btn dark" href="#live">See the live loan</a>
+      <a class="btn" href="https://github.com/Jennivarl/lasso">GitHub</a>
+      <a class="btn" href="https://github.com/Jennivarl/lasso#how-to-test">How to test</a>
+    </div>
+  </header>
+
+  <section>
+    <h2>Two parts, one lasso</h2>
+    <p class="sub">Lending apps only handle price drops. When a real business stops paying, nobody decides who’s right or who gets paid first, and nobody can reach collateral on another chain. Portaldot calls the fix its flagship: Default-as-a-Service.</p>
+    <div class="parts">
+      <div class="card">
+        <div class="chain" style="color:var(--amber)">PORTALDOT</div>
+        <h3>The court</h3>
+        <p>Runs the loan with a senior and a junior lender. If the borrower stops paying, a lender files a claim with a bond, the borrower can answer, 2 of 3 arbiters decide, and it issues a ruling.</p>
+      </div>
+      <div class="arrow"><span>⇄</span>proof of lock →<br>← the ruling</div>
+      <div class="card">
+        <div class="chain" style="color:var(--blue)">ETHEREUM</div>
+        <h3>The long arm</h3>
+        <p>A vault holds the borrower’s ETH. It pays out only on a valid ruling: senior first, then junior, then the surplus back to the borrower. Exactly once.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="live">
+    <h2>Loan #0, read live from the chains</h2>
+    <p class="sub">A real loan, request to payout, on Portaldot V3 testnet and Ethereum Sepolia. Every row below is checked against the chain as this page loads.</p>
+    <div class="term">
+      <div class="bar">
+        <span class="dot" style="background:#ed6a5e"></span><span class="dot" style="background:#f5bf4f"></span><span class="dot" style="background:#62c554"></span>
+        <span class="title">lasso · loan #0</span>
+      </div>
+      <div class="rows" id="rows"></div>
+      <div class="prompt">&gt; lasso verify --live <span class="c"></span></div>
+      <div class="status" id="status">
+        <span><b style="color:var(--green)">lasso</b> portaldot v3 testnet ⇄ ethereum sepolia</span>
+        <span id="s-loan">loan #0 <b>…</b></span>
+        <span id="s-vault">vault deposit #0 <b>…</b></span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The ruling, as paid on Ethereum</h2>
+    <p class="sub">Decoded from the ruling’s own event on Portaldot. The borrower owed 0.0525 POT to the senior lender and 0.0345 POT to the junior, settled at 100 POT per ETH, and repaid nothing.</p>
+    <div class="payout" id="bar">
+      <div id="b0" style="background:var(--ink)"></div>
+      <div id="b1" style="background:var(--amber)"></div>
+      <div id="b2" style="background:var(--teal)"></div>
+    </div>
+    <div class="legend">
+      <div class="card"><div class="k">senior lender</div><div class="v" id="v0">…</div><div class="n">Paid first: everything still owed to them.</div></div>
+      <div class="card"><div class="k">junior lender</div><div class="v" id="v1">…</div><div class="n">Paid second, from what is left.</div></div>
+      <div class="card"><div class="k">borrower</div><div class="v" id="v2">…</div><div class="n">The surplus goes back to them.</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Built for Portaldot</h2>
+    <p class="sub">pallet-revive holds a deposit for every byte a contract stores. Lasso is designed around it.</p>
+    <div class="stats">
+      <div class="card stat"><div class="big">0.06</div><div class="small">POT deposit per byte of code, plus 30%, read from the chain’s own constants</div></div>
+      <div class="card stat"><div class="big">1,425 → 478</div><div class="small">POT to deploy: version one vs. Lasso today, one 5.9 KB contract</div></div>
+      <div class="card stat"><div class="big">21</div><div class="small">tests pass, including 256 random loans that always pay out exactly the locked ETH</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Contracts</h2>
+    <table>
+      <tr><th>Contract</th><th>Chain</th><th>Address</th></tr>
+      <tr><td>Lasso</td><td>Portaldot V3 testnet</td><td class="addr">0x30e537B1FA7f59bE17440e9a49782d5Ff83D9dD1</td></tr>
+      <tr><td>LassoVault</td><td>Ethereum Sepolia</td><td class="addr"><a href="https://sepolia.etherscan.io/address/0x7C813053C1bfbEFF48Af6f8568E24972768306E2">0x7C813053C1bfbEFF48Af6f8568E24972768306E2</a></td></tr>
+      <tr><td>Road (temporary)</td><td>Ethereum Sepolia</td><td class="addr"><a href="https://sepolia.etherscan.io/address/0x3E8B7b6BcDEda05B89B93c66A7325e932A751fa8">0x3E8B7b6BcDEda05B89B93c66A7325e932A751fa8</a></td></tr>
+    </table>
+    <p class="note">Today both cross-chain messages are vouched for by one signing key (the “road”). Next, both become zero-knowledge proofs: Portaldot’s GRANDPA finality checked on Ethereum, and Ethereum’s consensus checked on Portaldot. V3’s EVM already supports the BN254 pairings that needs.</p>
+  </section>
+
+  <footer>Lasso · MIT · <a href="https://github.com/Jennivarl/lasso">github.com/Jennivarl/lasso</a></footer>
+</div>
+
+<script>
+const PD = "https://test-evm-rpc-v3.portaldot.dev";
+const ETH = "https://ethereum-sepolia-rpc.publicnode.com";
+const LASSO = "0x30e537B1FA7f59bE17440e9a49782d5Ff83D9dD1";
+const VAULT = "0x7C813053C1bfbEFF48Af6f8568E24972768306E2";
+const LOAN0_SLOT0 = "0xa6eef7e35abe7026729641147f7915573c7e97b47efa546f5f6e3230263bcb49";
+const RULING_TX = "0xba8b7cf7c8fffaae65ba78ded568151f357dbeadddec7ad2be461fcc16523bb1";
+const STATUS = ["NONE", "OPEN", "ACTIVE", "IN CLAIM", "DISPUTED", "REPAID", "DEFAULTED", "CANCELLED"];
+
+const STEPS = [
+  ["pd", "request", "loan #0 · 0.05 senior @5% · 0.03 junior @15%", "0x30e058109981677f6ccde457d29b29b12e4be6d5a1320910a920676920092a1e"],
+  ["eth", "lock", "0.001 ETH into LassoVault · deposit #0", "0xb2af7f898b305d4415f990cbe9c75a8374ed0d2f827397e38be4a35650328f67"],
+  ["road", "in", "Portaldot accepts proof of the lock", "0x3f40ce31c8fcb073946a8ce127389ec44be2b52f5e311ffd20b0be25c5b6e259"],
+  ["pd", "fund", "senior lender · 0.05 POT", "0x827a846b7ce727e71d2cd3bf3d721a94cd49fe5a0b152f9c9cd2671002653db5"],
+  ["pd", "fund", "junior lender · 0.03 POT · loan starts", "0xdb26ef5c66fb71e530d258b43b428401570a06b5d028fbabfe5062af969c9092"],
+  ["pd", "claim", "default claim with a bond · no answer", "0x81a8ebc95db8101a75312382ccc7f861d51ede2e589413310a606dc461d159e6"],
+  ["pd", "ruling", "default ruled · senior, junior, borrower", RULING_TX],
+  ["eth", "execute", "vault pays the ruling, exactly once", "0x29430d67664625ef4d23f38108fab196d1912e39da230e179fabd2f0409d5a6e"],
+];
+
+async function rpc(url, method, params) {
+  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  return j.result;
+}
+const short = h => h.slice(0, 8) + "…" + h.slice(-4);
+const eth = wei => (Number(wei) / 1e18).toString();
+const wordAt = (data, i) => data.slice(2 + i * 64, 2 + (i + 1) * 64);
+
+function row(lab, verb, what, tx, chain) {
+  const el = document.createElement("div");
+  el.className = "row";
+  const link = chain === "eth"
+    ? `<a class="hash" href="https://sepolia.etherscan.io/tx/${tx}" target="_blank" rel="noopener">${short(tx)}</a>`
+    : `<a class="hash" title="${tx}" href="#" onclick="navigator.clipboard&&navigator.clipboard.writeText('${tx}');return false">${short(tx)}</a>`;
+  el.innerHTML = `<span class="lab">${lab}</span><span class="what"><b>${verb}</b> <span class="muted">${what}</span> · ${link}</span><span class="st">checking…</span>`;
+  return el;
+}
+
+async function main() {
+  const rows = document.getElementById("rows");
+  const els = STEPS.map(([lab, verb, what, tx]) => {
+    const chain = lab === "eth" ? "eth" : "pd";
+    const el = row(lab, verb, what, tx, chain);
+    rows.appendChild(el);
+    return [el, chain, tx];
+  });
+  els.forEach(([el], i) => setTimeout(() => el.classList.add("on"), 120 * i));
+
+  await Promise.all(els.map(async ([el, chain, tx]) => {
+    const st = el.querySelector(".st");
+    try {
+      const r = await rpc(chain === "eth" ? ETH : PD, "eth_getTransactionReceipt", [tx]);
+      if (r && r.status === "0x1") { st.textContent = "✓ block " + parseInt(r.blockNumber, 16).toLocaleString(); st.classList.add("ok"); }
+      else { st.textContent = r ? "✗ failed" : "not found"; st.classList.add("bad"); }
+    } catch (e) { st.textContent = "rpc unavailable"; }
+  }));
+
+  try {
+    const w = BigInt(await rpc(PD, "eth_getStorageAt", [LASSO, LOAN0_SLOT0, "latest"]));
+    const s = Number((w >> 160n) & 0xffn);
+    document.querySelector("#s-loan b").textContent = STATUS[s] || "?";
+    document.querySelector("#s-loan b").style.color = s === 6 ? "var(--red)" : "var(--green)";
+  } catch (e) { document.querySelector("#s-loan b").textContent = "rpc unavailable"; }
+
+  try {
+    const d = await rpc(ETH, "eth_call", [{ to: VAULT, data: "0xb02c43d0" + "0".repeat(64) }, "latest"]);
+    const settled = BigInt("0x" + wordAt(d, 5)) === 1n;
+    const b = document.querySelector("#s-vault b");
+    b.textContent = settled ? "SETTLED" : "LOCKED"; b.style.color = settled ? "var(--teal)" : "var(--amber)";
+  } catch (e) { document.querySelector("#s-vault b").textContent = "rpc unavailable"; }
+
+  try {
+    const r = await rpc(PD, "eth_getTransactionReceipt", [RULING_TX]);
+    const log = r.logs.find(l => (l.data.length - 2) / 64 === 7);
+    const amounts = [4, 5, 6].map(i => BigInt("0x" + wordAt(log.data, i)));
+    const total = amounts.reduce((a, b) => a + b, 0n);
+    amounts.forEach((a, i) => {
+      document.getElementById("v" + i).textContent = eth(a) + " ETH";
+      const bar = document.getElementById("b" + i);
+      bar.style.flexGrow = Number(a * 1000n / total);
+      bar.textContent = Math.round(Number(a * 100n / total)) + "%";
+    });
+  } catch (e) { ["v0", "v1", "v2"].forEach(id => document.getElementById(id).textContent = "—"); }
+}
+main();
+</script>
+</body>
+</html>
